@@ -1,0 +1,579 @@
+// Copyright 2014 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+#include "components/signin/internal/identity_manager/primary_account_manager.h"
+
+#include <memory>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "base/check_deref.h"
+#include "base/command_line.h"
+#include "base/feature_list.h"
+#include "base/functional/callback_helpers.h"
+#include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/notreached.h"
+#include "base/observer_list.h"
+#include "base/time/time.h"
+#include "build/build_config.h"
+#include "components/metrics/profile_metrics_service.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
+#include "components/signin/internal/identity_manager/account_tracker_service.h"
+#include "components/signin/internal/identity_manager/profile_oauth2_token_service.h"
+#include "components/signin/public/base/account_consistency_method.h"
+#include "components/signin/public/base/consent_level.h"
+#include "components/signin/public/base/signin_client.h"
+#include "components/signin/public/base/signin_metrics.h"
+#include "components/signin/public/base/signin_prefs.h"
+#include "components/signin/public/base/signin_switches.h"
+#include "components/signin/public/identity_manager/account_info.h"
+#include "components/sync/base/features.h"
+#include "google_apis/gaia/core_account_id.h"
+#include "google_apis/gaia/gaia_id.h"
+
+using signin::PrimaryAccountChangeEvent;
+
+namespace {
+
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+#endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
+
+enum class InitializePrefState {
+  kWithPrimaryAccountId_NotConsentedForSync = 0,
+  kWithPrimaryAccountId_ConsentedForSync = 1,
+  kEmptyPrimaryAccountId_NotConsentedForSync = 2,
+  kEmptyPrimaryAccountId_ConsentedForSync = 3,
+  kMaxValue = kEmptyPrimaryAccountId_ConsentedForSync,
+};
+
+void LogPrimaryAccountChangeMetrics(
+    PrimaryAccountChangeEvent event_details,
+    metrics::ProfileMetricsService* profile_metrics_service) {
+  switch (event_details.GetEventTypeFor(signin::ConsentLevel::kSignin)) {
+    case PrimaryAccountChangeEvent::Type::kNone:
+      break;
+
+    case PrimaryAccountChangeEvent::Type::kSet:
+      if (!event_details.GetPreviousState().primary_account.IsEmpty()) {
+        // TODO(crbug.com/40202341): Add dedicated logging for account change
+        // events.
+        DVLOG(1) << "Signin metrics: Not logging account change";
+        break;
+      }
+
+      DCHECK(event_details.GetSetPrimaryAccountAccessPoint().has_value());
+      profile_metrics_service->UmaHistogramEnumeration(
+          "Signin.SignIn.Completed",
+          event_details.GetSetPrimaryAccountAccessPoint().value());
+      break;
+
+    case PrimaryAccountChangeEvent::Type::kCleared:
+      DCHECK(event_details.GetClearPrimaryAccountSource().has_value());
+      profile_metrics_service->UmaHistogramEnumeration(
+          "Signin.SignOut.Completed",
+          event_details.GetClearPrimaryAccountSource().value());
+      break;
+  }
+
+  switch (event_details.GetEventTypeFor(signin::ConsentLevel::kSync)) {
+    case PrimaryAccountChangeEvent::Type::kNone:
+      break;
+
+    case PrimaryAccountChangeEvent::Type::kSet:
+      DCHECK(event_details.GetSetPrimaryAccountAccessPoint().has_value());
+      profile_metrics_service->UmaHistogramEnumeration(
+          "Signin.SyncOptIn.Completed",
+          event_details.GetSetPrimaryAccountAccessPoint().value());
+      break;
+
+    case PrimaryAccountChangeEvent::Type::kCleared:
+      DCHECK(event_details.GetClearPrimaryAccountSource().has_value());
+      profile_metrics_service->UmaHistogramEnumeration(
+          "Signin.SyncTurnOff.Completed",
+          event_details.GetClearPrimaryAccountSource().value());
+      break;
+  }
+}
+
+[[maybe_unused]]
+void LogPrimaryAccountPrefsOnInitialize(const std::string& pref_account_id,
+                                        bool pref_consented_to_sync) {
+  if (pref_account_id.empty()) {
+    base::UmaHistogramEnumeration(
+        "Signin.PAMInitialize.PrimaryAccountPrefs",
+        pref_consented_to_sync
+            ? InitializePrefState::kEmptyPrimaryAccountId_ConsentedForSync
+            : InitializePrefState::kEmptyPrimaryAccountId_NotConsentedForSync);
+  } else {
+    base::UmaHistogramEnumeration(
+        "Signin.PAMInitialize.PrimaryAccountPrefs",
+        pref_consented_to_sync
+            ? InitializePrefState::kWithPrimaryAccountId_ConsentedForSync
+            : InitializePrefState::kWithPrimaryAccountId_NotConsentedForSync);
+  }
+}
+
+}  // namespace
+
+// A wrapper around PrefService that sets prefs only when updated. It can be
+// configured to commit writes for the updated values on destruction.
+//
+// In this case: if pref values are updated, commit will happen on destruction
+// and `commit_done_callback` is called when the prefs are written to the
+// persistent storage; if no pref has been updated, the callback will simply be
+// called during `ScopedPrefCommit`'s destruction.
+//
+// If `commit_done_callback` has a non-null value, `commit_on_destroy` must be
+// true.
+class PrimaryAccountManager::ScopedPrefCommit {
+ public:
+  ScopedPrefCommit(
+      PrefService* pref_service,
+      bool commit_on_destroy,
+      base::OnceClosure commit_done_callback = base::NullCallback())
+      : pref_service_(pref_service),
+        commit_on_destroy_(commit_on_destroy),
+        commit_done_callback_(std::move(commit_done_callback)) {
+    if (commit_done_callback_) {
+      // If `commit_on_destroy` is false, no commit will be done by
+      // `ScopedPrefCommit` so the commit-related callback will not be called.
+      // This CHECK ensures that the callback is not used (and expected to run)
+      // in this case.
+      CHECK(commit_on_destroy_);
+    }
+  }
+
+  ~ScopedPrefCommit() {
+    if (commit_on_destroy_ && need_commit_) {
+      pref_service_->CommitPendingWrite(std::move(commit_done_callback_),
+                                        base::NullCallback());
+    } else if (!need_commit_ && commit_done_callback_) {
+      std::move(commit_done_callback_).Run();
+    }
+  }
+
+  void SetBoolean(const std::string& path, bool value) {
+    if (pref_service_->GetBoolean(path) == value) {
+      return;
+    }
+
+    need_commit_ = true;
+    pref_service_->SetBoolean(path, value);
+  }
+
+  void SetString(const std::string& path, const std::string& value) {
+    if (pref_service_->GetString(path) == value) {
+      return;
+    }
+
+    need_commit_ = true;
+    pref_service_->SetString(path, value);
+  }
+
+  void ClearPref(const std::string& path) {
+    if (!pref_service_->HasPrefPath(path)) {
+      return;
+    }
+
+    need_commit_ = true;
+    pref_service_->ClearPref(path);
+  }
+
+ private:
+  raw_ptr<PrefService> pref_service_ = nullptr;
+  bool need_commit_ = false;
+  bool commit_on_destroy_ = false;
+  base::OnceClosure commit_done_callback_ = base::NullCallback();
+};
+
+PrimaryAccountManager::PrimaryAccount::PrimaryAccount(
+    const CoreAccountInfo& account_info,
+    bool consented_to_sync)
+    : account_info(account_info), consented_to_sync(consented_to_sync) {}
+
+PrimaryAccountManager::PrimaryAccountManager(
+    SigninClient* client,
+    ProfileOAuth2TokenService* token_service,
+    AccountTrackerService* account_tracker_service,
+    metrics::ProfileMetricsService* profile_metrics_service)
+    : client_(client),
+      token_service_(token_service),
+      account_tracker_service_(account_tracker_service),
+      profile_metrics_service_(CHECK_DEREF(profile_metrics_service)) {
+  DCHECK(client_);
+  DCHECK(account_tracker_service_);
+  ScopedPrefCommit scoped_pref_commit(client_->GetPrefs(),
+                                      /*commit_on_destroy=*/false);
+    SetPrimaryAccountInternal(CoreAccountInfo(), /*consented_to_sync=*/false,
+                              scoped_pref_commit);
+
+  // PrimaryAccountManager is initialized once the primary account and consent
+  // level are loaded.
+  CHECK(primary_account_.has_value());
+}
+
+PrimaryAccountManager::~PrimaryAccountManager() = default;
+
+// static
+void PrimaryAccountManager::RegisterProfilePrefs(PrefRegistrySimple* registry) {
+}
+
+// static
+void PrimaryAccountManager::RegisterPrefs(PrefRegistrySimple* registry) {
+}
+
+void PrimaryAccountManager::PrepareToLoadPrefs() {
+}
+
+std::pair<CoreAccountInfo, PrimaryAccountManager::InitializeAccountInfoState>
+PrimaryAccountManager::GetOrRestorePrimaryAccountInfoOnInitialize(
+    const std::string& pref_account_id,
+    bool pref_consented_to_sync) {
+  // Check this method is only called before loading the primary account.
+  CHECK(!primary_account_.has_value());
+
+  // This method must only be called when the primary account pref is non-empty.
+  CHECK(!pref_account_id.empty());
+  CoreAccountId account_id = CoreAccountId::FromString(pref_account_id);
+  CHECK(!account_id.empty());
+
+  CoreAccountInfo account_info =
+      account_tracker_service_->GetAccountInfo(account_id).GetCoreAccountInfo();
+  if (!account_info.IsEmpty()) {
+    return std::make_pair(account_info,
+                          InitializeAccountInfoState::kAccountInfoAvailable);
+  }
+
+  if (!pref_consented_to_sync) {
+    return std::make_pair(CoreAccountInfo(),
+                          InitializeAccountInfoState::
+                              kEmptyAccountInfo_RestoreFailedNotSyncConsented);
+  }
+
+#if BUILDFLAG(IS_IOS)
+  NOTREACHED();
+#else
+  return std::make_pair(
+      account_tracker_service_->GetAccountInfo(account_id).GetCoreAccountInfo(),
+      InitializeAccountInfoState::
+          kEmptyAccountInfo_RestoreSuccessFromLastSyncInfo);
+#endif  // BUILDFLAG(IS_IOS)
+}
+
+const PrimaryAccountManager::PrimaryAccount&
+PrimaryAccountManager::GetPrimaryAccount() const {
+  CHECK(primary_account_.has_value());
+  return primary_account_.value();
+}
+
+bool PrimaryAccountManager::HasPrimaryAccount(
+    signin::ConsentLevel consent_level) const {
+  const auto& primary_account = GetPrimaryAccount();
+  switch (consent_level) {
+    case signin::ConsentLevel::kSignin:
+      return !primary_account.account_info.account_id.empty();
+    case signin::ConsentLevel::kSync:
+      return !primary_account.account_info.account_id.empty() &&
+             primary_account.consented_to_sync;
+  }
+}
+
+CoreAccountInfo PrimaryAccountManager::GetPrimaryAccountInfo(
+    signin::ConsentLevel consent_level) const {
+  if (!HasPrimaryAccount(consent_level)) {
+    return CoreAccountInfo();
+  }
+  return GetPrimaryAccount().account_info;
+}
+
+CoreAccountId PrimaryAccountManager::GetPrimaryAccountId(
+    signin::ConsentLevel consent_level) const {
+  return GetPrimaryAccountInfo(consent_level).account_id;
+}
+
+void PrimaryAccountManager::SetPrimaryAccountInfo(
+    const CoreAccountInfo& account_info,
+    signin::ConsentLevel consent_level,
+    signin_metrics::AccessPoint access_point,
+    base::OnceClosure prefs_committed_callback) {
+  if (HasPrimaryAccount(signin::ConsentLevel::kSync)) {
+    DCHECK_EQ(account_info, GetPrimaryAccountInfo(signin::ConsentLevel::kSync))
+        << "Changing the primary sync account is not allowed.";
+    return;
+  }
+  DCHECK(!account_info.account_id.empty());
+  DCHECK(!account_info.gaia.empty());
+  DCHECK(!account_info.email.empty());
+  DCHECK(!account_tracker_service_->GetAccountInfo(account_info.account_id)
+              .IsEmpty())
+      << "Account must be seeded before being set as primary account";
+
+  PrimaryAccountChangeEvent::State previous_state = GetPrimaryAccountState();
+  switch (consent_level) {
+    case signin::ConsentLevel::kSync: {
+      // Commit primary sync account info immediately so that it does not get
+      // lost if Chrome crashes before the next commit interval.
+      ScopedPrefCommit sync_scoped_pref_commit(
+          client_->GetPrefs(),
+          /*commit_on_destroy*/ true, std::move(prefs_committed_callback));
+      SetSyncPrimaryAccountInternal(account_info, sync_scoped_pref_commit);
+      FirePrimaryAccountChanged(previous_state, access_point,
+                                sync_scoped_pref_commit);
+      return;
+    }
+    case signin::ConsentLevel::kSignin: {
+      bool account_changed = account_info != GetPrimaryAccount().account_info;
+      // Commit primary account info immediately so that it does not get lost
+      // if Chrome exits before the next commit interval. (e.g. at the end of
+      // Chrome restore.)
+      ScopedPrefCommit signin_scoped_pref_commit(
+          client_->GetPrefs(),
+          /*commit_on_destroy*/ true, std::move(prefs_committed_callback));
+      SetPrimaryAccountInternal(account_info, /*consented_to_sync=*/false,
+                                signin_scoped_pref_commit);
+      if (account_changed) {
+        FirePrimaryAccountChanged(previous_state, access_point,
+                                  signin_scoped_pref_commit);
+      }
+      return;
+    }
+  }
+}
+
+void PrimaryAccountManager::SetSyncPrimaryAccountInternal(
+    const CoreAccountInfo& account_info,
+    ScopedPrefCommit& scoped_pref_commit) {
+  DCHECK(!account_info.account_id.empty());
+  DCHECK(!HasPrimaryAccount(signin::ConsentLevel::kSync));
+
+#if DCHECK_IS_ON()
+  {
+    std::string pref_account_id;
+    bool consented_to_sync =
+        false;
+
+    DCHECK(pref_account_id.empty() || !consented_to_sync ||
+           pref_account_id == account_info.account_id.ToString())
+        << "account_id=" << account_info.account_id
+        << " pref_account_id=" << pref_account_id;
+  }
+#endif  // DCHECK_IS_ON()
+
+  SetPrimaryAccountInternal(account_info, /*consented_to_sync=*/true,
+                            scoped_pref_commit);
+}
+
+void PrimaryAccountManager::SetPrimaryAccountInternal(
+    const CoreAccountInfo& account_info,
+    bool consented_to_sync,
+    ScopedPrefCommit& scoped_pref_commit) {
+  CHECK(!account_info.account_id.empty() || !consented_to_sync);
+
+  // 'account_info' might be a reference to the contents of `primary_account_`.
+  // Create a PrimaryAccount object before calling emplace to avoid crashes.
+  primary_account_.emplace(PrimaryAccount(account_info, consented_to_sync));
+}
+
+void PrimaryAccountManager::UpdatePrimaryAccountInfo() {
+  CoreAccountId primary_account_id =
+      GetPrimaryAccount().account_info.account_id;
+  bool consented_to_sync = GetPrimaryAccount().consented_to_sync;
+  CHECK(!primary_account_id.empty());
+
+  const CoreAccountInfo updated_account_info =
+      account_tracker_service_->GetAccountInfo(primary_account_id)
+          .GetCoreAccountInfo();
+  CHECK_EQ(primary_account_id, updated_account_info.account_id);
+
+  // Calling SetPrimaryAccountInternal() is avoided in this case as the
+  // primary account id did not change.
+  primary_account_.emplace(updated_account_info, consented_to_sync);
+}
+
+void PrimaryAccountManager::AddObserver(Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void PrimaryAccountManager::RemoveObserver(Observer* observer) {
+  observers_.RemoveObserver(observer);
+}
+
+#if !BUILDFLAG(IS_CHROMEOS)
+void PrimaryAccountManager::ClearPrimaryAccount(
+    signin_metrics::ProfileSignout signout_source_metric) {
+  StartSignOut(signout_source_metric, RemoveAccountsOption::kRemoveAllAccounts);
+}
+
+void PrimaryAccountManager::RemovePrimaryAccountButKeepTokens(
+    signin_metrics::ProfileSignout signout_source_metric) {
+  StartSignOut(signout_source_metric,
+               RemoveAccountsOption::kKeepAllAccountsAndClearPrimary);
+}
+
+#endif  // !BUILDFLAG(IS_CHROMEOS)
+
+void PrimaryAccountManager::RevokeSyncConsent(
+    signin_metrics::ProfileSignout signout_source_metric) {
+  StartSignOut(signout_source_metric, RemoveAccountsOption::kKeepAllAccounts);
+}
+
+void PrimaryAccountManager::StartSignOut(
+    signin_metrics::ProfileSignout signout_source_metric,
+    RemoveAccountsOption remove_option) {
+  VLOG(1) << "StartSignOut: " << static_cast<int>(signout_source_metric) << ", "
+          << static_cast<int>(remove_option);
+  client_->PreSignOut(
+      base::BindOnce(&PrimaryAccountManager::OnSignoutDecisionReached,
+                     base::Unretained(this), signout_source_metric,
+                     remove_option),
+      signout_source_metric);
+}
+
+void PrimaryAccountManager::OnSignoutDecisionReached(
+    signin_metrics::ProfileSignout signout_source_metric,
+    RemoveAccountsOption remove_option,
+    SigninClient::SignoutDecision signout_decision) {
+  VLOG(1) << "OnSignoutDecisionReached: "
+          << (signout_decision == SigninClient::SignoutDecision::ALLOW);
+
+  bool abort_signout =
+      GetPrimaryAccount().account_info.IsEmpty() ||
+      (remove_option == RemoveAccountsOption::kRemoveAllAccounts &&
+       signout_decision ==
+           SigninClient::SignoutDecision::CLEAR_PRIMARY_ACCOUNT_DISALLOWED);
+
+  if (abort_signout) {
+    // TODO(crbug.com/40240858): Add 'NOTREACHED()' after updating the
+    // 'SigninManager', 'Dice Response Handler'.
+    VLOG(1) << "Ignoring attempt to sign out while signout disallowed";
+    return;
+  }
+
+  signin_metrics::LogSignout(signout_source_metric);
+  PrimaryAccountChangeEvent::State previous_state = GetPrimaryAccountState();
+
+  // Revoke all tokens before sending signed_out notification, because there
+  // may be components that don't listen for token service events when the
+  // profile is not connected to an account.
+  ScopedPrefCommit scoped_pref_commit(client_->GetPrefs(),
+                                      /*commit_on_destroy*/ false);
+  switch (remove_option) {
+    case RemoveAccountsOption::kRemoveAllAccounts:
+      VLOG(0)
+          << "Revoking all refresh tokens on server. Reason: sign out; source: "
+          << static_cast<int>(signout_source_metric);
+      SetPrimaryAccountInternal(CoreAccountInfo(), /*consented_to_sync=*/false,
+                                scoped_pref_commit);
+      token_service_->RevokeAllCredentials(
+          signin_metrics::SourceForRefreshTokenOperation::
+              kPrimaryAccountManager_ClearAccount);
+      break;
+    case RemoveAccountsOption::kKeepAllAccounts:
+      if (previous_state.consent_level == signin::ConsentLevel::kSignin) {
+        // Nothing to update as the primary account is already at kSignin
+        // consent level. Prefer returning to avoid firing useless
+        // OnPrimaryAccountChanged() notifications.
+        return;
+      }
+      SetPrimaryAccountInternal(GetPrimaryAccount().account_info,
+                                /*consented_to_sync=*/false,
+                                scoped_pref_commit);
+      break;
+    case RemoveAccountsOption::kKeepAllAccountsAndClearPrimary:
+      SetPrimaryAccountInternal(CoreAccountInfo(), /*consented_to_sync=*/false,
+                                scoped_pref_commit);
+      break;
+  }
+
+  DCHECK(!HasPrimaryAccount(signin::ConsentLevel::kSync));
+  FirePrimaryAccountChanged(previous_state, signout_source_metric,
+                            scoped_pref_commit);
+}
+
+PrimaryAccountChangeEvent::State PrimaryAccountManager::GetPrimaryAccountState()
+    const {
+  PrimaryAccountChangeEvent::State state(GetPrimaryAccount().account_info,
+                                         signin::ConsentLevel::kSignin);
+  if (HasPrimaryAccount(signin::ConsentLevel::kSync)) {
+    state.consent_level = signin::ConsentLevel::kSync;
+  }
+  return state;
+}
+
+void PrimaryAccountManager::SetExplicitBrowserSigninPrefs(
+    const PrimaryAccountChangeEvent& event_details,
+    ScopedPrefCommit& scoped_pref_commit) {
+}
+
+void PrimaryAccountManager::FirePrimaryAccountChanged(
+    const PrimaryAccountChangeEvent::State& previous_state,
+    std::variant<signin_metrics::AccessPoint, signin_metrics::ProfileSignout>
+        event_source,
+    ScopedPrefCommit& scoped_pref_commit) {
+  PrimaryAccountChangeEvent::State current_state = GetPrimaryAccountState();
+  PrimaryAccountChangeEvent event_details(previous_state, current_state,
+                                          event_source);
+
+  DCHECK(event_details.GetEventTypeFor(signin::ConsentLevel::kSync) !=
+             PrimaryAccountChangeEvent::Type::kNone ||
+         event_details.GetEventTypeFor(signin::ConsentLevel::kSignin) !=
+             PrimaryAccountChangeEvent::Type::kNone)
+      << "PrimaryAccountChangeEvent with no change: " << event_details;
+
+  LogPrimaryAccountChangeMetrics(event_details,
+                                 &profile_metrics_service_.get());
+
+  SetExplicitBrowserSigninPrefs(event_details, scoped_pref_commit);
+
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
+  if (event_details.GetEventTypeFor(signin::ConsentLevel::kSignin) ==
+      PrimaryAccountChangeEvent::Type::kCleared) {
+    SigninPrefs(*client_->GetPrefs())
+        .SetChromeLastSignoutTime(previous_state.primary_account.gaia,
+                                  base::Time::Now());
+  }
+#endif
+
+  client_->OnPrimaryAccountChanged(event_details);
+
+  for (Observer& observer : observers_) {
+    observer.OnPrimaryAccountChanged(event_details);
+  }
+}
+
+void PrimaryAccountManager::OnRefreshTokensLoaded() {
+  token_service_observation_.Reset();
+
+#if BUILDFLAG(IS_CHROMEOS)
+  if (account_tracker_service_->GetMigrationState() ==
+      AccountTrackerService::MIGRATION_IN_PROGRESS) {
+    account_tracker_service_->SetMigrationDone();
+  }
+#endif
+
+// On Android, account seeding on Android is
+// controlled by SigninManager, so don't remove any accounts here.
+#if !BUILDFLAG(IS_ANDROID)
+  // Remove account information from the account tracker service if needed.
+  if (token_service_->HasLoadCredentialsFinishedWithNoErrors()) {
+    std::vector<AccountInfo> accounts_in_tracker_service =
+        account_tracker_service_->GetAccounts();
+    const CoreAccountId primary_account_id_ =
+        GetPrimaryAccountId(signin::ConsentLevel::kSignin);
+    for (const auto& account : accounts_in_tracker_service) {
+      if (primary_account_id_ != account.GetAccountId() &&
+          !token_service_->RefreshTokenIsAvailable(account.GetAccountId())) {
+        VLOG(0) << "Removed account from account tracker service: "
+                << account.GetAccountId();
+        account_tracker_service_->RemoveAccount(account.GetAccountId());
+      }
+    }
+  }
+#endif
+}
