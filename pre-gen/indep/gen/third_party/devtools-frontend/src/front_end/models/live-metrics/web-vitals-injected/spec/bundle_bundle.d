@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/live-metrics/web-vitals-injected/spec/spec.js: ../../third_party/devtools-frontend/src/front_end/models/live-metrics/web-vitals-injected/spec/spec.ts

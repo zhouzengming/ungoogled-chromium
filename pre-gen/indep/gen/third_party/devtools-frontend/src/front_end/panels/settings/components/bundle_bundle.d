@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/settings/components/components.js: gen/third_party/devtools-frontend/src/front_end/panels/settings/components/syncSection.css.js ../../third_party/devtools-frontend/src/front_end/panels/settings/components/SyncSection.ts ../../third_party/devtools-frontend/src/front_end/panels/settings/components/components.ts

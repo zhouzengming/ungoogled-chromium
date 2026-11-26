@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/core/platform/browser/browser.js: ../../third_party/devtools-frontend/src/front_end/core/platform/browser/HostRuntime.ts ../../third_party/devtools-frontend/src/front_end/core/platform/browser/browser.ts

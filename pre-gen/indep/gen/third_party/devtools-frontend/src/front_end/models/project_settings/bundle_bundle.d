@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/project_settings/project_settings.js: ../../third_party/devtools-frontend/src/front_end/models/project_settings/ProjectSettingsModel.ts ../../third_party/devtools-frontend/src/front_end/models/project_settings/project_settings.ts

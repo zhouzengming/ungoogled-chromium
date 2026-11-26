@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/legacy_test_runner/test_runner/test_runner.js: ../../third_party/devtools-frontend/src/front_end/legacy_test_runner/test_runner/TestRunner.ts ../../third_party/devtools-frontend/src/front_end/legacy_test_runner/test_runner/test_runner.ts

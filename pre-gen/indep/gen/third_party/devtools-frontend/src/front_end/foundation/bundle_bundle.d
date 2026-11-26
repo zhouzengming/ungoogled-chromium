@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/foundation/foundation.js: ../../third_party/devtools-frontend/src/front_end/foundation/Universe.ts ../../third_party/devtools-frontend/src/front_end/foundation/foundation.ts

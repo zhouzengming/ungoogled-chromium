@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/marked/marked.js: ../../third_party/devtools-frontend/src/front_end/third_party/marked/package/lib/marked.esm.js ../../third_party/devtools-frontend/src/front_end/third_party/marked/marked.ts

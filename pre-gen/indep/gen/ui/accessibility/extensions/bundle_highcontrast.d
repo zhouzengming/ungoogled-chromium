@@ -1,0 +1,1 @@
+gen/ui/accessibility/extensions/bundle/highcontrast/highcontrast.rollup.js: gen/ui/accessibility/extensions/tsc/highcontrast/common.js gen/ui/accessibility/extensions/tsc/highcontrast/highcontrast.js

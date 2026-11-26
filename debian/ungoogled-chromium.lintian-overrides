@@ -1,0 +1,10 @@
+# currently unavoidable embedded libraries
+embedded-library freetype   [usr/lib/ungoogled-chromium/chromium]
+embedded-library srtp       [usr/lib/ungoogled-chromium/chromium]
+embedded-library tiff       [usr/lib/ungoogled-chromium/chromium]
+
+# bookmarks, not documentation
+package-contains-documentation-outside-usr-share-doc [usr/share/ungoogled-chromium/initial_bookmarks.html]
+
+# too many upstream spelling mistakes
+spelling-error-in-binary

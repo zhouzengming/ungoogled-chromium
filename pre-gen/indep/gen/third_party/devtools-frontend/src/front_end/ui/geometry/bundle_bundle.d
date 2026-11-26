@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/geometry/geometry.js: ../../third_party/devtools-frontend/src/front_end/ui/geometry/GeometryImpl.ts ../../third_party/devtools-frontend/src/front_end/ui/geometry/geometry.ts

@@ -1,0 +1,34 @@
+{
+  "extends": "../../../../../../../../tools/typescript/tsconfig_base.json",
+  "compilerOptions": {
+    "rootDir": "../../../../../../../../chrome/browser/resources/contextual_tasks/extension",
+    "outDir": "post_message_handler",
+    "composite": true,
+    "declaration": true,
+    "tsBuildInfoFile": "tsconfig_build_post_message_handler_ts.tsbuildinfo",
+    "skipLibCheck": true,
+    "paths": {
+      "/tools/typescript/definitions/*": [
+        "./../../../../../../../../tools/typescript/definitions/*"
+      ],
+      "chrome://contextual-tasks/*": [
+        "./../tsc/*"
+      ]
+    }
+  },
+  "files": [
+    "../../../../../../../../chrome/browser/resources/contextual_tasks/extension/post_message_entrypoint.ts",
+    "../../../../../../../../chrome/browser/resources/contextual_tasks/extension/post_message_handler.ts"
+  ],
+  "references": [
+    {
+      "path": "../tsconfig_build_ts.json"
+    },
+    {
+      "path": "../../../../../ui/webui/resources/js/tsconfig_build_ts.json"
+    },
+    {
+      "path": "../../../../../ui/webui/resources/mojo/tsconfig_build_ts.json"
+    }
+  ]
+}

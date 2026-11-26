@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/i18n/i18n.js: ../../third_party/devtools-frontend/src/front_end/third_party/i18n/localized-string-set.ts ../../third_party/devtools-frontend/src/front_end/third_party/i18n/i18n-impl.ts ../../third_party/devtools-frontend/src/front_end/third_party/i18n/i18n.ts

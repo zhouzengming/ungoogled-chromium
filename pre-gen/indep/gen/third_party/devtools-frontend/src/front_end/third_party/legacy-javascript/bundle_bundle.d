@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/legacy-javascript/legacy-javascript.js: ../../third_party/devtools-frontend/src/front_end/third_party/legacy-javascript/lib/legacy-javascript.js ../../third_party/devtools-frontend/src/front_end/third_party/legacy-javascript/legacy-javascript.ts

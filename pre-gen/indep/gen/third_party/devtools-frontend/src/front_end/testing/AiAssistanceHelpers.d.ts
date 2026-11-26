@@ -1,0 +1,94 @@
+import sinon from 'sinon';
+import * as Common from '../core/common/common.js';
+import * as Host from '../core/host/host.js';
+import * as Platform from '../core/platform/platform.js';
+import * as AiAssistance from '../models/ai_assistance/ai_assistance.js';
+import * as Persistence from '../models/persistence/persistence.js';
+import type * as Trace from '../models/trace/trace.js';
+import * as Workspace from '../models/workspace/workspace.js';
+import type * as AiAssistancePanel from '../panels/ai_assistance/ai_assistance.js';
+export declare const MockAidaAbortError: {
+    readonly abortError: true;
+};
+export declare const MockAidaFetchError: {
+    readonly fetchError: true;
+};
+export declare const MockAidaQuotaError: {
+    readonly quotaError: true;
+};
+export declare const MockAidaPayloadLimitError: {
+    readonly payloadLimitError: true;
+};
+export type MockAidaResponse = Omit<Host.AidaClient.DoConversationResponse, 'completed' | 'metadata'> & {
+    metadata?: Host.AidaClient.ResponseMetadata;
+} | typeof MockAidaAbortError | typeof MockAidaFetchError | typeof MockAidaQuotaError | typeof MockAidaPayloadLimitError;
+/**
+ * Creates a mock AIDA client that responds using `data`.
+ *
+ * Each first-level item of `data` is a single response.
+ * Each second-level item of `data` is a chunk of a response.
+ * The last chunk sets completed flag to true;
+ */
+export declare function mockAidaClient(data?: Array<[MockAidaResponse, ...MockAidaResponse[]]>): sinon.SinonStubbedInstance<Host.AidaClient.AidaClient>;
+export declare function createUISourceCode(options?: {
+    content?: string;
+    mimeType?: string;
+    url?: Platform.DevToolsPath.UrlString;
+    resourceType?: Common.ResourceType.ResourceType;
+    requestContentData?: boolean;
+}): Promise<Workspace.UISourceCode.UISourceCode>;
+export declare const setupAutomaticFileSystem: (options?: {
+    hasFileSystem: boolean;
+}) => void;
+export declare function initializePersistenceImplForTests(): void;
+/**
+ * Removes the 'id' field from a message.
+ * Note: the return type is a distributive conditional type. This is required
+ * to ensure that Omit is applied to each member of the message union
+ * individually. Without this, Omit<Message, 'id'> would only preserve
+ * properties common to all members of the union, losing fields like 'text'
+ * (from UserChatMessage) or 'parts' (from ModelChatMessage).
+ */
+export declare function stripId<T extends {
+    id: string;
+}>(message: T): T extends AiAssistancePanel.ChatMessage.Message ? Omit<T, 'id'> : never;
+export declare function createTestFilesystem(fileSystemPath: string, files?: Array<{
+    path: string;
+    content: string;
+}>): {
+    project: Persistence.FileSystemWorkspaceBinding.FileSystem;
+    uiSourceCode: Workspace.UISourceCode.UISourceCode;
+};
+export declare function assertIsError<T>(response: AiAssistance.Tool.DataHandlerResult<T> | AiAssistance.Tool.ContextHandlerResult<T> | AiAssistance.AiAgent.ToolResult<T>, expectedError?: string | RegExp): asserts response is AiAssistance.Tool.ToolErrorResult;
+export declare function assertIsResult<T>(response: AiAssistance.Tool.DataHandlerResult<T> | AiAssistance.Tool.ContextHandlerResult<T> | AiAssistance.AiAgent.ToolResult<T>): asserts response is AiAssistance.Tool.ToolDataResult<T>;
+export declare function assertRequiresApproval<T>(response: AiAssistance.Tool.DataHandlerResult<T> | AiAssistance.Tool.ContextHandlerResult<T> | AiAssistance.AiAgent.ToolResult<T>): asserts response is AiAssistance.Tool.ToolApprovalResult;
+export declare function assertIsContext<T>(response: AiAssistance.Tool.DataHandlerResult<T> | AiAssistance.Tool.ContextHandlerResult<T> | AiAssistance.AiAgent.ToolResult<T>): asserts response is AiAssistance.Tool.ToolContextResult<T>;
+/**
+ * Creates a dummy File object containing a solid red image with the given dimensions.
+ *
+ * @param width Width of the dummy image in pixels (px).
+ * @param height Height of the dummy image in pixels (px).
+ */
+export declare function createDummyImageFile(width: number, height: number): Promise<File>;
+export declare function makeFakeParsedTrace(options?: {
+    min?: number;
+    max?: number;
+    mainFrameURL?: string;
+}): Trace.TraceModel.ParsedTrace;
+export declare function stubPerformanceTraceFormatter(traceContext: AiAssistance.PerformanceTraceContext.PerformanceTraceContext, methods: {
+    formatMainThreadTrackSummary?: sinon.SinonStub;
+    formatNetworkTrackSummary?: sinon.SinonStub;
+    formatCallTree?: sinon.SinonStub;
+    resolveFunctionCodeAtLocation?: sinon.SinonStub;
+    formatFunctionCode?: sinon.SinonStub;
+}): sinon.SinonStub;
+/**
+ * Asserts that a skill is loaded/active by verifying that its full manifest entry
+ * (`- <name>: <description>`) is omitted from the prompt's unloaded skills manifest.
+ */
+export declare function assertSkillLoaded(prompt: string, skillName: AiAssistance.Skill.SkillName): void;
+/**
+ * Asserts that a skill is not loaded by verifying that its full manifest entry
+ * (`- <name>: <description>`) is present in the prompt's unloaded skills manifest.
+ */
+export declare function assertSkillNotLoaded(prompt: string, skillName: AiAssistance.Skill.SkillName): void;

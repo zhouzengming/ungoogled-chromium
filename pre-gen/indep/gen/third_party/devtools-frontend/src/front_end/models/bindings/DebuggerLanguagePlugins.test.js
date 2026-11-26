@@ -1,0 +1,350 @@
+// Copyright 2023 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+import sinon from 'sinon';
+import * as Platform from '../../core/platform/platform.js';
+import * as SDK from '../../core/sdk/sdk.js';
+import { TestPlugin } from '../../testing/LanguagePluginHelpers.js';
+import { setupLocaleHooks } from '../../testing/LocaleHelpers.js';
+import { MockDebuggerBackend } from '../../testing/MockScopeChain.js';
+import { setupRuntimeHooks } from '../../testing/RuntimeHelpers.js';
+import { setupSettingsHooks } from '../../testing/SettingsHelpers.js';
+import { protocolCallFrame, stringifyFrame } from '../../testing/StackTraceHelpers.js';
+import { TestUniverse } from '../../testing/TestUniverse.js';
+import { createContentProviderUISourceCode } from '../../testing/UISourceCodeHelpers.js';
+import * as StackTrace from '../stack_trace/stack_trace.js';
+import * as Workspace from '../workspace/workspace.js';
+import * as Bindings from './bindings.js';
+const { urlString } = Platform.DevToolsPath;
+describe('ExtensionRemoteObject', () => {
+    describe('isLinearMemoryInspectable', () => {
+        it('yields false when the extension object has no linear memory address', () => {
+            const callFrame = sinon.createStubInstance(SDK.DebuggerModel.CallFrame);
+            const extensionObject = {
+                type: 'object',
+                hasChildren: false,
+            };
+            const plugin = new TestPlugin('TestPlugin');
+            const remoteObject = new Bindings.DebuggerLanguagePlugins.ExtensionRemoteObject(callFrame, extensionObject, plugin);
+            assert.isFalse(remoteObject.isLinearMemoryInspectable());
+        });
+        it('yields true when the extension object has a linear memory address', () => {
+            const callFrame = sinon.createStubInstance(SDK.DebuggerModel.CallFrame);
+            const extensionObject = {
+                type: 'object',
+                linearMemoryAddress: 42,
+                hasChildren: false,
+            };
+            const plugin = new TestPlugin('TestPlugin');
+            const remoteObject = new Bindings.DebuggerLanguagePlugins.ExtensionRemoteObject(callFrame, extensionObject, plugin);
+            assert.isTrue(remoteObject.isLinearMemoryInspectable());
+        });
+    });
+});
+describe('DebuggerLanguagePluginManager', () => {
+    setupLocaleHooks();
+    setupSettingsHooks();
+    setupRuntimeHooks();
+    describe('getFunctionInfo', () => {
+        let target;
+        let pluginManager;
+        let debuggerWorkspaceBinding;
+        const MISSING_DWO_FILE = 'test.dwo';
+        const MISSING_DEBUG_FILES = {
+            resourceUrl: urlString `${MISSING_DWO_FILE}`,
+            initiator: {
+                target: null,
+                frameId: null,
+                extensionId: 'chrome-extension-id',
+                initiatorUrl: urlString `chrome-extension-id`,
+            },
+        };
+        const FUNCTION_NAME = 'test';
+        class Plugin extends TestPlugin {
+            getFunctionInfo(_rawLocation) {
+                return Promise.resolve({ missingSymbolFiles: [] });
+            }
+            handleScript(_) {
+                return true;
+            }
+            addRawModule(_rawModuleId, _symbolsURL, _rawModule) {
+                return Promise.resolve(['https://script-host/script.js']);
+            }
+        }
+        let universe;
+        beforeEach(() => {
+            universe = new TestUniverse();
+            target = universe.createTarget();
+            debuggerWorkspaceBinding = universe.debuggerWorkspaceBinding;
+            pluginManager = debuggerWorkspaceBinding.pluginManager;
+        });
+        function createAndRegisterScript() {
+            const debuggerModel = target.model(SDK.DebuggerModel.DebuggerModel);
+            const scriptUrl = urlString `https://script-host/script.js`;
+            return debuggerModel.parsedScriptSource('0', scriptUrl, 0, 0, 0, 0, 0, '', null, undefined, false, false, 0, null, null, null, null, null, null, null);
+        }
+        it('correctly processes missing debug info if available', async () => {
+            const plugin = new Plugin('TestPlugin');
+            sinon.stub(plugin, 'getFunctionInfo').returns(Promise.resolve({ missingSymbolFiles: [MISSING_DWO_FILE] }));
+            pluginManager.addPlugin(plugin);
+            const script = createAndRegisterScript();
+            const location = sinon.createStubInstance(SDK.DebuggerModel.Location);
+            const result = await pluginManager.getFunctionInfo(script, location);
+            assert.exists(result);
+            assert.deepEqual(result, { missingSymbolFiles: [MISSING_DEBUG_FILES] });
+        });
+        it('correctly returns frames if available', async () => {
+            const plugin = new Plugin('TestPlugin');
+            sinon.stub(plugin, 'getFunctionInfo').returns(Promise.resolve({ frames: [{ name: FUNCTION_NAME }] }));
+            pluginManager.addPlugin(plugin);
+            const script = createAndRegisterScript();
+            const location = sinon.createStubInstance(SDK.DebuggerModel.Location);
+            const result = await pluginManager.getFunctionInfo(script, location);
+            assert.exists(result);
+            assert.deepEqual(result, { frames: [{ name: FUNCTION_NAME }] });
+        });
+        it('correctly returns frames and missing debug info if both are available', async () => {
+            const plugin = new Plugin('TestPlugin');
+            sinon.stub(plugin, 'getFunctionInfo')
+                .returns(Promise.resolve({ frames: [{ name: FUNCTION_NAME }], missingSymbolFiles: [MISSING_DWO_FILE] }));
+            pluginManager.addPlugin(plugin);
+            const script = createAndRegisterScript();
+            const location = sinon.createStubInstance(SDK.DebuggerModel.Location);
+            const result = await pluginManager.getFunctionInfo(script, location);
+            assert.exists(result);
+            assert.deepEqual(result, { frames: [{ name: FUNCTION_NAME }], missingSymbolFiles: [MISSING_DEBUG_FILES] });
+        });
+        it('correctly updates locations when missing debug info is reported', async () => {
+            const plugin = new Plugin('TestPlugin');
+            sinon.stub(plugin, 'addRawModule').returns(Promise.resolve({ missingSymbolFiles: [MISSING_DWO_FILE] }));
+            pluginManager.addPlugin(plugin);
+            const updateLocationsSpy = sinon.spy(debuggerWorkspaceBinding, 'updateLocations');
+            const script = createAndRegisterScript();
+            await pluginManager.getSourcesForScript(script);
+            sinon.assert.calledWith(updateLocationsSpy, script);
+        });
+    });
+    describe('translateRawFramesStep', () => {
+        function setup() {
+            const backend = new MockDebuggerBackend();
+            const target = backend.createTarget();
+            const debuggerWorkspaceBinding = sinon.createStubInstance(Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding);
+            const workspace = sinon.createStubInstance(Workspace.Workspace.WorkspaceImpl);
+            const pluginManager = new Bindings.DebuggerLanguagePlugins.DebuggerLanguagePluginManager(target.targetManager(), workspace, debuggerWorkspaceBinding, target.targetManager().getConsole());
+            return { target, backend, pluginManager, debuggerWorkspaceBinding };
+        }
+        it('returns false if no plugin is registered for the top-most frame', async () => {
+            const { target, backend, pluginManager } = setup();
+            const script = await backend.addScript(target, { url: urlString `foo.js`, content: '' }, null);
+            const rawFrames = [protocolCallFrame(`${script.sourceURL}:${script.scriptId}:foo:1:10`)];
+            assert.isFalse(await pluginManager.translateRawFramesStep(rawFrames, [], target));
+            assert.lengthOf(rawFrames, 1);
+        });
+        it('identity maps the frame with a NO_INFO status when the plugin returns an empty array', async () => {
+            const { target, backend, pluginManager } = setup();
+            const script = await backend.addScript(target, { url: urlString `foo.js`, content: '' }, null);
+            const plugin = new (class extends TestPlugin {
+                getFunctionInfo(_rawLocation) {
+                    return Promise.resolve({ frames: [] });
+                }
+                handleScript(_) {
+                    return true;
+                }
+            })('TestPlugin');
+            pluginManager.addPlugin(plugin);
+            const rawFrames = [protocolCallFrame(`${script.sourceURL}:${script.scriptId}:foo:1:10`)];
+            const translatedFrames = [];
+            assert.isTrue(await pluginManager.translateRawFramesStep(rawFrames, translatedFrames, target));
+            assert.lengthOf(rawFrames, 0);
+            assert.lengthOf(translatedFrames, 1);
+            assert.strictEqual(translatedFrames[0].map(stringifyFrame).join('\n'), 'at foo (foo.js:1:10)');
+            assert.strictEqual(translatedFrames[0][0].missingDebugInfo?.type, "NO_INFO" /* StackTrace.StackTrace.MissingDebugInfoType.NO_INFO */);
+        });
+        it('identity maps the frame with a PARTIAL_INFO status when the plugin returns missing debug symbols', async () => {
+            const { target, backend, pluginManager } = setup();
+            const script = await backend.addScript(target, { url: urlString `foo.js`, content: '' }, null);
+            const plugin = new (class extends TestPlugin {
+                getFunctionInfo(_rawLocation) {
+                    return Promise.resolve({ missingSymbolFiles: ['foo.dwo'] });
+                }
+                handleScript(_) {
+                    return true;
+                }
+            })('TestPlugin');
+            pluginManager.addPlugin(plugin);
+            const rawFrames = [protocolCallFrame(`${script.sourceURL}:${script.scriptId}:foo:1:10`)];
+            const translatedFrames = [];
+            assert.isTrue(await pluginManager.translateRawFramesStep(rawFrames, translatedFrames, target));
+            assert.lengthOf(rawFrames, 0);
+            assert.lengthOf(translatedFrames, 1);
+            assert.strictEqual(translatedFrames[0].map(stringifyFrame).join('\n'), 'at foo (foo.js:1:10)');
+            assert.deepEqual(translatedFrames[0][0].missingDebugInfo, {
+                type: "PARTIAL_INFO" /* StackTrace.StackTrace.MissingDebugInfoType.PARTIAL_INFO */,
+                missingDebugFiles: [{ resourceUrl: urlString `foo.dwo`, initiator: plugin.createPageResourceLoadInitiator() }],
+            });
+        });
+        it('translates one frame at a time', async () => {
+            const { target, backend, pluginManager } = setup();
+            sinon.stub(pluginManager, 'uiSourceCodeForURL')
+                .callsFake((_model, url) => createContentProviderUISourceCode({ url, target, mimeType: 'text/plain' }).uiSourceCode);
+            const script = await backend.addScript(target, { url: urlString `foo.js`, content: '' }, null);
+            const plugin = new (class extends TestPlugin {
+                getFunctionInfo(rawLocation) {
+                    const name = rawLocation.codeOffset === 10 ? 'foo' : rawLocation.codeOffset === 20 ? 'bar' : 'unknown';
+                    return Promise.resolve({ frames: [{ name }] });
+                }
+                handleScript(_) {
+                    return true;
+                }
+                rawLocationToSourceLocation(rawLocation) {
+                    const sourceFileURL = rawLocation.codeOffset === 10 ? 'foo.cc' :
+                        rawLocation.codeOffset === 20 ? 'bar.cc' :
+                            'unknown';
+                    return Promise.resolve([{
+                            rawModuleId: rawLocation.rawModuleId,
+                            sourceFileURL,
+                            lineNumber: rawLocation.codeOffset / 10,
+                            columnNumber: rawLocation.codeOffset / 2,
+                        }]);
+                }
+            })('TestPlugin');
+            pluginManager.addPlugin(plugin);
+            const rawFrames = [
+                `${script.sourceURL}:${script.scriptId}::0:10`,
+                `${script.sourceURL}:${script.scriptId}::0:20`,
+            ].map(protocolCallFrame);
+            const translatedFrames = [];
+            assert.isTrue(await pluginManager.translateRawFramesStep(rawFrames, translatedFrames, target));
+            assert.lengthOf(rawFrames, 1);
+            assert.lengthOf(translatedFrames, 1);
+            assert.strictEqual(translatedFrames[0].map(stringifyFrame).join('\n'), 'at foo (foo.cc:1:5)');
+            assert.isTrue(await pluginManager.translateRawFramesStep(rawFrames, translatedFrames, target));
+            assert.lengthOf(rawFrames, 0);
+            assert.lengthOf(translatedFrames, 2);
+            assert.strictEqual(translatedFrames[1].map(stringifyFrame).join('\n'), 'at bar (bar.cc:2:10)');
+        });
+        it('translates inlined frames correctly', async () => {
+            const { target, backend, pluginManager } = setup();
+            sinon.stub(pluginManager, 'uiSourceCodeForURL')
+                .callsFake((_model, url) => createContentProviderUISourceCode({ url, target, mimeType: 'text/plain' }).uiSourceCode);
+            const script = await backend.addScript(target, { url: urlString `foo.js`, content: '' }, null);
+            const plugin = new (class extends TestPlugin {
+                getFunctionInfo(_rawLocation) {
+                    return Promise.resolve({ frames: [{ name: 'foo' }, { name: 'bar' }] });
+                }
+                handleScript(_) {
+                    return true;
+                }
+                rawLocationToSourceLocation(rawLocation) {
+                    const sourceFileURL = rawLocation.inlineFrameIndex === 0 ? 'foo.cc' :
+                        rawLocation.inlineFrameIndex === 1 ? 'bar.cc' :
+                            'unknown';
+                    return Promise.resolve([{
+                            rawModuleId: rawLocation.rawModuleId,
+                            sourceFileURL,
+                            lineNumber: (rawLocation.inlineFrameIndex + 1) * 2,
+                            columnNumber: (rawLocation.inlineFrameIndex + 1) * 5,
+                        }]);
+                }
+            })('TestPlugin');
+            pluginManager.addPlugin(plugin);
+            const rawFrames = [protocolCallFrame(`${script.sourceURL}:${script.scriptId}::0:10`)];
+            const translatedFrames = [];
+            assert.isTrue(await pluginManager.translateRawFramesStep(rawFrames, translatedFrames, target));
+            assert.lengthOf(rawFrames, 0);
+            assert.lengthOf(translatedFrames, 1);
+            assert.deepEqual(translatedFrames[0].map(stringifyFrame), [
+                'at foo (foo.cc:2:5)',
+                'at bar (bar.cc:4:10)',
+            ]);
+        });
+        it('uses the translated source position when the plugin lacks function info', async () => {
+            const { target, backend, pluginManager, debuggerWorkspaceBinding } = setup();
+            const script = await backend.addScript(target, { url: urlString `foo.js`, content: '' }, null);
+            const plugin = new (class extends TestPlugin {
+                getFunctionInfo(_rawLocation) {
+                    return Promise.resolve({ missingSymbolFiles: ['foo.dwo'] });
+                }
+                handleScript(_) {
+                    return true;
+                }
+            })('TestPlugin');
+            pluginManager.addPlugin(plugin);
+            const uiSourceCode = createContentProviderUISourceCode({ url: urlString `foo.cc`, target, mimeType: 'text/plain' }).uiSourceCode;
+            debuggerWorkspaceBinding.rawLocationToUILocation.resolves(uiSourceCode.uiLocation(10, 5));
+            const rawFrames = [protocolCallFrame(`${script.sourceURL}:${script.scriptId}:foo:1:10`)];
+            const translatedFrames = [];
+            assert.isTrue(await pluginManager.translateRawFramesStep(rawFrames, translatedFrames, target));
+            assert.lengthOf(rawFrames, 0);
+            assert.lengthOf(translatedFrames, 1);
+            assert.strictEqual(translatedFrames[0].map(stringifyFrame).join('\n'), 'at foo (foo.cc:10:5)');
+            assert.strictEqual(translatedFrames[0][0].uiSourceCode, uiSourceCode);
+            assert.deepEqual(translatedFrames[0][0].missingDebugInfo, {
+                type: "PARTIAL_INFO" /* StackTrace.StackTrace.MissingDebugInfoType.PARTIAL_INFO */,
+                missingDebugFiles: [{ resourceUrl: urlString `foo.dwo`, initiator: plugin.createPageResourceLoadInitiator() }],
+            });
+        });
+    });
+    describe('project securityOrigin partitioning', () => {
+        it('assigns the script network origin to language plugin projects and isolates cross-origin scripts', async () => {
+            const backend = new MockDebuggerBackend();
+            const target = backend.createTarget();
+            const pluginManager = backend.universe.debuggerWorkspaceBinding.pluginManager;
+            const plugin = new (class extends TestPlugin {
+                handleScript(_) {
+                    return true;
+                }
+                addRawModule(_rawModuleId, _symbolsURL, _rawModule) {
+                    return Promise.resolve(['https://victim.example/source.c']);
+                }
+            })('TestPlugin');
+            pluginManager.addPlugin(plugin);
+            const attackerScript = await backend.addScript(target, {
+                url: urlString `https://attacker.com/module.wasm`,
+                embedderName: urlString `https://attacker.com/module.wasm`,
+                content: '',
+            }, null);
+            const attackerUiSourceCode = await backend.universe.debuggerWorkspaceBinding.uiSourceCodeForDebuggerLanguagePluginSourceURLPromise(attackerScript.debuggerModel, urlString `https://victim.example/source.c`);
+            assert.isNotNull(attackerUiSourceCode);
+            assert.strictEqual(attackerUiSourceCode.project().securityOrigin()?.siteId(), 'https://attacker.com');
+            assert.isTrue(attackerUiSourceCode.project().id().includes('https://attacker.com'));
+            const victimScript = await backend.addScript(target, {
+                url: urlString `https://victim.example/module.wasm`,
+                embedderName: urlString `https://victim.example/module.wasm`,
+                content: '',
+            }, null);
+            await pluginManager.getSourcesForScript(victimScript);
+            const victimUiSourceCode = pluginManager.uiSourceCodeForURL(victimScript.debuggerModel, urlString `https://victim.example/source.c`, victimScript);
+            assert.isNotNull(victimUiSourceCode);
+            assert.notStrictEqual(victimUiSourceCode, attackerUiSourceCode);
+            assert.strictEqual(victimUiSourceCode.project().securityOrigin()?.siteId(), 'https://victim.example');
+        });
+        it('assigns an opaque security origin to language plugin projects for opaque scripts', async () => {
+            const backend = new MockDebuggerBackend();
+            const target = backend.createTarget();
+            const pluginManager = backend.universe.debuggerWorkspaceBinding.pluginManager;
+            const plugin = new (class extends TestPlugin {
+                handleScript(_) {
+                    return true;
+                }
+                addRawModule(_rawModuleId, _symbolsURL, _rawModule) {
+                    return Promise.resolve(['https://victim.example/source.c']);
+                }
+            })('TestPlugin');
+            pluginManager.addPlugin(plugin);
+            const dataScript = await backend.addScript(target, {
+                url: urlString `data:application/wasm;base64,AGFzbQEAAAA=`,
+                embedderName: urlString `data:application/wasm;base64,AGFzbQEAAAA=`,
+                content: '',
+            }, null);
+            const uiSourceCode = await backend.universe.debuggerWorkspaceBinding.uiSourceCodeForDebuggerLanguagePluginSourceURLPromise(dataScript.debuggerModel, urlString `https://victim.example/source.c`);
+            assert.isNotNull(uiSourceCode);
+            assert.strictEqual(dataScript.securityOrigin(), dataScript.securityOrigin());
+            assert.isNotNull(uiSourceCode.project().securityOrigin());
+            assert.isTrue(uiSourceCode.project().securityOrigin()?.isOpaque());
+            assert.strictEqual(pluginManager.uiSourceCodeForURL(dataScript.debuggerModel, urlString `https://victim.example/source.c`, dataScript), uiSourceCode);
+        });
+    });
+});
+//# sourceMappingURL=DebuggerLanguagePlugins.test.js.map

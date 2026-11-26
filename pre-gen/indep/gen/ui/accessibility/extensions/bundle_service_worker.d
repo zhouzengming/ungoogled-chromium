@@ -1,0 +1,1 @@
+gen/ui/accessibility/extensions/bundle/service_worker/service_worker.rollup.js: gen/ui/accessibility/extensions/tsc/highcontrast/common.js gen/ui/accessibility/extensions/tsc/highcontrast/service_worker.js

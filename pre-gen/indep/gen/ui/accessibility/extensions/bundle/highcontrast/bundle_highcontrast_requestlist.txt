@@ -1,0 +1,1 @@
+{"highcontrast.rollup.js": ["../../tsc/highcontrast/common.js", "../../tsc/highcontrast/highcontrast.js"]}

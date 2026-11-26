@@ -1,0 +1,1608 @@
+// Copyright 2022 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+import sinon from 'sinon';
+import * as SDK from '../../../core/sdk/sdk.js';
+import * as Logs from '../../../models/logs/logs.js';
+import { assertGridContents, assertGridWidgetContents } from '../../../testing/DataGridHelpers.js';
+import { dispatchClickEvent, dispatchInputEvent, getCleanTextContentFromElements, renderElementIntoDOM, } from '../../../testing/DOMHelpers.js';
+import { createTarget, describeWithEnvironment } from '../../../testing/EnvironmentHelpers.js';
+import { dispatchEvent } from '../../../testing/MockConnection.js';
+import * as RenderCoordinator from '../../../ui/components/render_coordinator/render_coordinator.js';
+import * as UI from '../../../ui/legacy/legacy.js';
+import * as Resources from '../application.js';
+import * as PreloadingComponents from './components/components.js';
+const zip2 = (xs, ys) => {
+    assert.strictEqual(xs.length, ys.length);
+    return Array.from(xs.map((_, i) => [xs[i], ys[i]]));
+};
+const doubleRaf = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+/** Holds targets and ids, and emits events. **/
+class NavigationEmulator {
+    seq = 0;
+    tabTarget;
+    primaryTarget;
+    frameId;
+    loaderId;
+    prerenderTarget = null;
+    prerenderStatusUpdatedEvent = null;
+    constructor() {
+        this.tabTarget = createTarget({ type: SDK.Target.Type.TAB });
+        // Fill fake ones here and fill real ones in async part.
+        this.primaryTarget = createTarget();
+        this.frameId = 'fakeFrameId';
+        this.loaderId = 'fakeLoaderId';
+    }
+    async createTarget(targetInfo, sessionId) {
+        const childTargetManager = this.tabTarget.model(SDK.ChildTargetManager.ChildTargetManager);
+        dispatchEvent(this.tabTarget, 'Target.targetCreated', { targetInfo });
+        await childTargetManager.attachedToTarget({
+            sessionId,
+            targetInfo,
+            waitingForDebugger: false,
+        });
+        const target = SDK.TargetManager.TargetManager.instance().targetById(targetInfo.targetId);
+        assert.exists(target);
+        return target;
+    }
+    async openDevTools() {
+        const url = 'https://example.com/';
+        const targetId = `targetId:${this.seq}`;
+        const sessionId = `sessionId:${this.seq}`;
+        const targetInfo = {
+            targetId,
+            type: 'page',
+            title: 'title',
+            url,
+            attached: true,
+            canAccessOpener: false,
+        };
+        this.primaryTarget = await this.createTarget(targetInfo, sessionId);
+        this.frameId = 'frameId';
+        this.loaderId = 'loaderId';
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(this.primaryTarget);
+    }
+    async navigateAndDispatchEvents(path) {
+        const url = 'https://example.com/' + path;
+        this.seq++;
+        this.loaderId = `loaderId:${this.seq}`;
+        assert.notStrictEqual(url, this.prerenderTarget?.targetInfo()?.url);
+        dispatchEvent(this.primaryTarget, 'Page.frameNavigated', {
+            frame: {
+                id: this.frameId,
+                loaderId: this.loaderId,
+                url,
+                domainAndRegistry: 'example.com',
+                securityOrigin: 'https://example.com/',
+                mimeType: 'text/html',
+                secureContextType: "Secure" /* Protocol.Page.SecureContextType.Secure */,
+                crossOriginIsolatedContextType: "Isolated" /* Protocol.Page.CrossOriginIsolatedContextType.Isolated */,
+                gatedAPIFeatures: [],
+            },
+            type: "Navigation" /* Protocol.Page.NavigationType.Navigation */,
+        });
+    }
+    async activateAndDispatchEvents(path) {
+        const url = 'https://example.com/' + path;
+        assert.exists(this.prerenderTarget);
+        assert.strictEqual(url, this.prerenderTarget.targetInfo()?.url);
+        assert.exists(this.prerenderStatusUpdatedEvent);
+        this.seq++;
+        this.loaderId = this.prerenderStatusUpdatedEvent.key.loaderId;
+        const targetInfo = this.prerenderTarget.targetInfo();
+        assert.exists(targetInfo);
+        // This also emits ResourceTreeModel.Events.PrimaryPageChanged.
+        dispatchEvent(this.tabTarget, 'Target.targetInfoChanged', {
+            targetInfo: {
+                ...targetInfo,
+                subtype: undefined,
+            },
+        });
+        // Notify a new model to PreloadingModelProxy.
+        this.primaryTarget = this.prerenderTarget;
+        this.prerenderTarget = null;
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(this.primaryTarget);
+        // Strictly speaking, we have to emit an event for SDK.PreloadingModel.PreloadingStatus.Ready earlier.
+        // It's not so important and omitted.
+        dispatchEvent(this.primaryTarget, 'Preload.prerenderStatusUpdated', {
+            ...this.prerenderStatusUpdatedEvent,
+            status: "Success" /* Protocol.Preload.PreloadingStatus.Success */,
+        });
+    }
+    async addSpecRules(specrules) {
+        this.seq++;
+        // For simplicity, we only emit errors if parse failed.
+        let json;
+        try {
+            json = JSON.parse(specrules);
+        }
+        catch {
+            dispatchEvent(this.primaryTarget, 'Preload.ruleSetUpdated', {
+                ruleSet: {
+                    id: `ruleSetId:0.${this.seq}`,
+                    loaderId: this.loaderId,
+                    sourceText: specrules,
+                    backendNodeId: this.seq,
+                    errorType: "SourceIsNotJsonObject" /* Protocol.Preload.RuleSetErrorType.SourceIsNotJsonObject */,
+                    errorMessage: 'fake error message',
+                },
+            });
+            return;
+        }
+        dispatchEvent(this.primaryTarget, 'Preload.ruleSetUpdated', {
+            ruleSet: {
+                id: `ruleSetId:0.${this.seq}`,
+                loaderId: this.loaderId,
+                sourceText: specrules,
+                backendNodeId: this.seq,
+            },
+        });
+        for (const prefetchAttempt of json['prefetch'] || []) {
+            // For simplicity
+            assert.strictEqual(prefetchAttempt['source'], 'list');
+            assert.lengthOf(prefetchAttempt['urls'], 1);
+            const url = 'https://example.com' + prefetchAttempt['urls'][0];
+            dispatchEvent(this.primaryTarget, 'Preload.prefetchStatusUpdated', {
+                key: {
+                    loaderId: this.loaderId,
+                    action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                    url,
+                },
+                initiatingFrameId: this.frameId,
+                prefetchUrl: url,
+                status: "Running" /* Protocol.Preload.PreloadingStatus.Running */,
+            });
+        }
+        if (json['prerender'] === undefined) {
+            return;
+        }
+        // For simplicity
+        assert.lengthOf(json['prerender'], 1);
+        assert.strictEqual(json['prerender'][0]['source'], 'list');
+        assert.lengthOf(json['prerender'][0]['urls'], 1);
+        const prerenderUrl = 'https://example.com' + json['prerender'][0]['urls'][0];
+        this.prerenderStatusUpdatedEvent = {
+            key: {
+                loaderId: this.loaderId,
+                action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                url: prerenderUrl,
+            },
+            pipelineId: `pipelineId:0.${this.seq}`,
+            status: "Running" /* Protocol.Preload.PreloadingStatus.Running */,
+        };
+        dispatchEvent(this.primaryTarget, 'Preload.prerenderStatusUpdated', this.prerenderStatusUpdatedEvent);
+        const sessionId = `sessionId:prerender:${this.seq}`;
+        const targetInfo = {
+            targetId: `targetId:prerender:${this.seq}`,
+            type: 'page',
+            subtype: 'prerender',
+            url: prerenderUrl,
+            title: '',
+            attached: true,
+            canAccessOpener: true,
+        };
+        this.prerenderTarget = await this.createTarget(targetInfo, sessionId);
+        // Note that Page.frameNavigated is emitted here.
+        // See also https://crbug.com/1317959 and ResourceTreeModel.Events.PrimaryPageChanged.
+        dispatchEvent(this.prerenderTarget, 'Page.frameNavigated', {
+            frame: {
+                id: `frameId:prerender:${this.seq}`,
+                loaderId: `loaderId:prerender:${this.seq}`,
+                url: prerenderUrl,
+                domainAndRegistry: 'example.com',
+                securityOrigin: 'https://example.com/',
+                mimeType: 'text/html',
+                secureContextType: "Secure" /* Protocol.Page.SecureContextType.Secure */,
+                crossOriginIsolatedContextType: "Isolated" /* Protocol.Page.CrossOriginIsolatedContextType.Isolated */,
+                gatedAPIFeatures: [],
+            },
+            type: "Navigation" /* Protocol.Page.NavigationType.Navigation */,
+        });
+    }
+}
+function createRuleSetView(target) {
+    const model = target.model(SDK.PreloadingModel.PreloadingModel);
+    assert.exists(model);
+    const view = new Resources.PreloadingView.PreloadingRuleSetView(model);
+    const container = new UI.Widget.VBox();
+    const div = document.createElement('div');
+    view.contentElement.style.width = '640px';
+    view.contentElement.style.height = '480px';
+    renderElementIntoDOM(div);
+    container.markAsRoot();
+    container.show(div);
+    view.show(container.element);
+    // Ensure PreloadingModelProxy.initialize to be called.
+    view.wasShown();
+    return view;
+}
+function createAttemptView(target) {
+    const model = target.model(SDK.PreloadingModel.PreloadingModel);
+    assert.exists(model);
+    const view = new Resources.PreloadingView.PreloadingAttemptView(model);
+    const container = new UI.Widget.VBox();
+    const div = document.createElement('div');
+    view.contentElement.style.width = '640px';
+    view.contentElement.style.height = '480px';
+    renderElementIntoDOM(div);
+    container.markAsRoot();
+    container.show(div);
+    view.show(container.element);
+    // Ensure PreloadingModelProxy.initialize to be called.
+    view.wasShown();
+    return view;
+}
+function createSummaryView(target) {
+    const model = target.model(SDK.PreloadingModel.PreloadingModel);
+    assert.exists(model);
+    const view = new Resources.PreloadingView.PreloadingSummaryView(model);
+    const container = new UI.Widget.VBox();
+    const div = document.createElement('div');
+    renderElementIntoDOM(div);
+    container.markAsRoot();
+    container.show(div);
+    view.show(container.element);
+    // Ensure PreloadingModelProxy.initialize to be called.
+    view.wasShown();
+    return view;
+}
+function getTextFilterPromptElement(view) {
+    const element = view.contentElement.querySelector('.toolbar-filter .text-prompt');
+    assert.instanceOf(element, HTMLElement);
+    return element;
+}
+function setTextFilter(view, text) {
+    const prompt = getTextFilterPromptElement(view);
+    prompt.textContent = text;
+    dispatchInputEvent(prompt);
+}
+function getTextFilter(view) {
+    return getTextFilterPromptElement(view).textContent || '';
+}
+function clickClearButton(view) {
+    const button = view.contentElement.querySelector('[aria-label="Clear speculative loads"]');
+    assert.instanceOf(button, HTMLElement);
+    dispatchClickEvent(button);
+}
+describeWithEnvironment('PreloadingRuleSetView', () => {
+    beforeEach(() => {
+        SDK.ChildTargetManager.ChildTargetManager.install();
+    });
+    it('renders placeholder', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createRuleSetView(emulator.primaryTarget);
+        await RenderCoordinator.done();
+        const placeholder = view.contentElement.querySelector('.empty-state');
+        assert.exists(placeholder);
+        assert.deepEqual(window.getComputedStyle(placeholder).display, 'flex');
+        const header = placeholder.querySelector('.empty-state-header')?.textContent;
+        const description = placeholder.querySelector('.empty-state-description > span')?.textContent;
+        assert.deepEqual(header, 'No rules detected');
+        assert.deepEqual(description, 'On this page you will see the speculation rules used to prefetch and prerender page navigations');
+        const rules = view.contentElement.querySelector('devtools-split-view');
+        assert.exists(rules);
+        assert.deepEqual(window.getComputedStyle(rules).display, 'none');
+    });
+    it('renders grid and details and hides placeholder', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createRuleSetView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/prerendered.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [],
+                },
+            ],
+        });
+        await RenderCoordinator.done();
+        await doubleRaf();
+        const ruleSetGrid = view.getRuleSetGridForTest();
+        assert.isNotNull(ruleSetGrid.element.shadowRoot);
+        assertGridContents(ruleSetGrid.element, ['Rule set', 'Status'], [
+            ['example.com/', '1 running'],
+        ]);
+        const placeholder = view.contentElement.querySelector('.empty-state');
+        assert.exists(placeholder);
+        assert.deepEqual(window.getComputedStyle(placeholder).display, 'none');
+    });
+    it('shows error of rule set', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createRuleSetView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+`);
+        await RenderCoordinator.done();
+        await doubleRaf();
+        const ruleSetGrid = view.getRuleSetGridForTest();
+        assert.isNotNull(ruleSetGrid.element.shadowRoot);
+        assertGridContents(ruleSetGrid.element, ['Rule set', 'Status'], [
+            ['example.com/', '1 error'],
+        ]);
+        ruleSetGrid.dispatchEventToListeners("select" /* PreloadingComponents.RuleSetGrid.Events.SELECT */, 'ruleSetId:0.2');
+        await RenderCoordinator.done();
+        const ruleSetDetailsElement = view.contentElement
+            .querySelector('devtools-widget');
+        const ruleSetDetailsComponent = ruleSetDetailsElement?.getWidget();
+        assert.exists(ruleSetDetailsComponent);
+        await ruleSetDetailsComponent.updateComplete;
+        assert.deepEqual(ruleSetDetailsComponent.contentElement.querySelector('#ruleset-url')?.textContent, 'https://example.com/');
+        assert.deepEqual(ruleSetDetailsComponent.contentElement.querySelector('#error-message-text')?.textContent, 'fake error message');
+    });
+    it('clears SpeculationRules for previous pages', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createRuleSetView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        await emulator.navigateAndDispatchEvents('notprerendered.html');
+        await RenderCoordinator.done();
+        await doubleRaf();
+        const ruleSetGrid = view.getRuleSetGridForTest();
+        assert.isNotNull(ruleSetGrid.element.shadowRoot);
+        assertGridContents(ruleSetGrid.element, ['Rule set', 'Status'], []);
+    });
+    it('clears SpeculationRules for previous pages when prerendered page activated', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createRuleSetView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        await emulator.activateAndDispatchEvents('prerendered.html');
+        await RenderCoordinator.done();
+        await doubleRaf();
+        const ruleSetGrid = view.getRuleSetGridForTest();
+        assert.isNotNull(ruleSetGrid.element.shadowRoot);
+        assertGridContents(ruleSetGrid.element, ['Rule set', 'Status'], []);
+    });
+    // See https://crbug.com/1432880
+    it('preserves information even if iframe loaded', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createRuleSetView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        const targetInfo = {
+            targetId: 'targetId',
+            type: 'iframe',
+            title: 'title',
+            url: 'https://example.com/iframe.html',
+            attached: true,
+            canAccessOpener: false,
+        };
+        const childTargetManager = emulator.primaryTarget.model(SDK.ChildTargetManager.ChildTargetManager);
+        assert.exists(childTargetManager);
+        dispatchEvent(emulator.primaryTarget, 'Target.targetCreated', { targetInfo });
+        await childTargetManager.attachedToTarget({
+            sessionId: 'sessionId',
+            targetInfo,
+            waitingForDebugger: false,
+        });
+        await RenderCoordinator.done();
+        await doubleRaf();
+        const ruleSetGrid = view.getRuleSetGridForTest();
+        assert.isNotNull(ruleSetGrid.element.shadowRoot);
+        assertGridContents(ruleSetGrid.element, ['Rule set', 'Status'], [
+            ['example.com/', ''],
+        ]);
+    });
+});
+describeWithEnvironment('PreloadingAttemptView', () => {
+    beforeEach(() => {
+        SDK.ChildTargetManager.ChildTargetManager.install();
+    });
+    it('renders placeholder', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await RenderCoordinator.done();
+        const placeholder = view.contentElement.querySelector('.empty-state');
+        assert.exists(placeholder);
+        assert.deepEqual(window.getComputedStyle(placeholder).display, 'flex');
+        const header = placeholder.querySelector('.empty-state-header')?.textContent;
+        const description = placeholder.querySelector('.empty-state-description > span')?.textContent;
+        assert.deepEqual(header, 'No speculation detected');
+        assert.deepEqual(description, 'On this page you will see details on speculative loads');
+        const rules = view.contentElement.querySelector('devtools-split-view');
+        assert.exists(rules);
+        assert.deepEqual(window.getComputedStyle(rules).display, 'none');
+    });
+    it('resizes details panel when transitioning from empty to non-empty state', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        const splitView = view.contentElement.querySelector('devtools-split-view');
+        assert.exists(splitView);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        await RenderCoordinator.done();
+        const splitWidget = splitView.getWidget();
+        assert.exists(splitWidget);
+        assert.isAbove(splitWidget.sidebarSize(), 0);
+    });
+    it('renders grid and details and hides placeholder', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        const preloadingDetailsComponent = view.getPreloadingDetailsForTest();
+        assert.isNotNull(preloadingDetailsComponent.contentElement);
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/prerendered.html',
+                'Prerender',
+                '',
+                'Running',
+            ],
+        ]);
+        const placeholder = view.contentElement.querySelector('.empty-state');
+        assert.exists(placeholder);
+        assert.deepEqual(window.getComputedStyle(placeholder).display, 'none');
+    });
+    it('shows status code for prefetch failure in the grid', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/prefetch.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/prefetch.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2],
+                },
+            ],
+        });
+        const requestId = 'requestId:1';
+        sinon.stub(Logs.NetworkLog.NetworkLog.instance(), 'requestsForId').withArgs(requestId).returns([
+            { statusCode: 404 },
+        ]);
+        dispatchEvent(emulator.primaryTarget, 'Preload.prefetchStatusUpdated', {
+            key: {
+                loaderId: 'loaderId:1',
+                action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                url: 'https://example.com/prefetch.html',
+            },
+            pipelineId: 'pipelineId:1',
+            initiatingFrameId: 'frameId',
+            prefetchUrl: 'https://example.com/prefetch.html',
+            status: "Failure" /* Protocol.Preload.PreloadingStatus.Failure */,
+            prefetchStatus: "PrefetchFailedNon2XX" /* Protocol.Preload.PrefetchStatus.PrefetchFailedNon2XX */,
+            requestId,
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/prefetch.html',
+                'Prefetch',
+                'example.com/',
+                'Failure - The prefetch failed because of a non-2xx HTTP response status code (404)',
+            ],
+        ]);
+    });
+    it('shows status code for prerender failure in the grid', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        const url = 'https://example.com/prerendered.html';
+        const fakeRequest = { statusCode: 404 };
+        const fakeNetworkManager = { requestForLoaderId: () => fakeRequest };
+        const fakeFrame = {
+            loaderId: 'loaderId:1',
+            resourceTreeModel: () => ({
+                target: () => ({
+                    model: () => fakeNetworkManager,
+                }),
+            }),
+        };
+        sinon.stub(SDK.ResourceTreeModel.ResourceTreeModel, 'frames').returns([fakeFrame]);
+        dispatchEvent(emulator.primaryTarget, 'Preload.prerenderStatusUpdated', {
+            key: {
+                loaderId: 'loaderId:1',
+                action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                url,
+            },
+            status: "Failure" /* Protocol.Preload.PreloadingStatus.Failure */,
+            prerenderStatus: "NavigationBadHttpStatus" /* Protocol.Preload.PrerenderFinalStatus.NavigationBadHttpStatus */,
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/prerendered.html',
+                'Prerender',
+                '',
+                'Failure - The prerendering navigation failed because of a non-2xx HTTP response status code (404)',
+            ],
+        ]);
+    });
+    it('does not show status code 0 for prerender failure in the grid', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        const url = 'https://example.com/prerendered.html';
+        const fakeRequest = { statusCode: 0 };
+        const fakeNetworkManager = { requestForLoaderId: () => fakeRequest };
+        const fakeFrame = {
+            loaderId: 'loaderId:1',
+            resourceTreeModel: () => ({
+                target: () => ({
+                    model: () => fakeNetworkManager,
+                }),
+            }),
+        };
+        sinon.stub(SDK.ResourceTreeModel.ResourceTreeModel, 'frames').returns([fakeFrame]);
+        dispatchEvent(emulator.primaryTarget, 'Preload.prerenderStatusUpdated', {
+            key: {
+                loaderId: 'loaderId:1',
+                action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                url,
+            },
+            status: "Failure" /* Protocol.Preload.PreloadingStatus.Failure */,
+            prerenderStatus: "NavigationBadHttpStatus" /* Protocol.Preload.PrerenderFinalStatus.NavigationBadHttpStatus */,
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/prerendered.html',
+                'Prerender',
+                '',
+                'Failure - The prerendering navigation failed because of a non-2xx HTTP response status code',
+            ],
+        ]);
+    });
+    // See https://crbug.com/1432880
+    it('preserves information even if iframe loaded', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        const targetInfo = {
+            targetId: 'targetId',
+            type: 'iframe',
+            title: 'title',
+            url: 'https://example.com/iframe.html',
+            attached: true,
+            canAccessOpener: false,
+        };
+        const childTargetManager = emulator.primaryTarget.model(SDK.ChildTargetManager.ChildTargetManager);
+        assert.exists(childTargetManager);
+        dispatchEvent(emulator.primaryTarget, 'Target.targetCreated', { targetInfo });
+        await childTargetManager.attachedToTarget({
+            sessionId: 'sessionId',
+            targetInfo,
+            waitingForDebugger: false,
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        const preloadingDetailsComponent = view.getPreloadingDetailsForTest();
+        assert.isNotNull(preloadingDetailsComponent.contentElement);
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/prerendered.html',
+                'Prerender',
+                '',
+                'Running',
+            ],
+        ]);
+        const placeholderHeader = preloadingDetailsComponent.contentElement.querySelector('.empty-state-header');
+        assert.strictEqual(placeholderHeader?.textContent?.trim(), 'No element selected');
+        const placeholderDescription = preloadingDetailsComponent.contentElement.querySelector('.empty-state-description');
+        assert.strictEqual(placeholderDescription?.textContent, 'Select an element for more details');
+    });
+    it('filters preloading attempts by selected rule set', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        // ruleSetId:0.2
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/subresource2.js"]
+    }
+  ]
+}
+`);
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered3.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/subresource2.js',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2, 3],
+                },
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/prerendered3.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.3'],
+                    nodeIds: [3],
+                },
+            ],
+        });
+        const ruleSetSelectorToolbarItem = view.getRuleSetSelectorToolbarItemForTest();
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        assert.strictEqual(ruleSetSelectorToolbarItem.element.querySelector('span')?.textContent, 'All speculative loads');
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/subresource2.js',
+                'Prefetch',
+                'example.com/',
+                'Running',
+            ],
+            [
+                '/prerendered3.html',
+                'Prerender',
+                'example.com/',
+                'Running',
+            ],
+        ]);
+        // Turn on filtering.
+        view.selectRuleSetOnFilterForTest('ruleSetId:0.2');
+        await preloadingGridComponent.updateComplete;
+        assert.strictEqual(ruleSetSelectorToolbarItem.element.querySelector('span')?.textContent, 'example.com/');
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/subresource2.js',
+                'Prefetch',
+                'example.com/',
+                'Running',
+            ],
+        ]);
+        // Turn off filtering.
+        view.selectRuleSetOnFilterForTest(null);
+        await preloadingGridComponent.updateComplete;
+        assert.strictEqual(ruleSetSelectorToolbarItem.element.querySelector('span')?.textContent, 'All speculative loads');
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/subresource2.js',
+                'Prefetch',
+                'example.com/',
+                'Running',
+            ],
+            [
+                '/prerendered3.html',
+                'Prerender',
+                'example.com/',
+                'Running',
+            ],
+        ]);
+    });
+    it('shows prerender details with Investigate button for Running', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        const preloadingDetailsComponent = view.getPreloadingDetailsForTest();
+        assert.isNotNull(preloadingDetailsComponent.contentElement);
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/prerendered.html',
+                'Prerender',
+                '',
+                'Running',
+            ],
+        ]);
+        preloadingGridComponent.contentElement.querySelectorAll('tr')[1].dispatchEvent(new Event('select'));
+        await preloadingDetailsComponent.updateComplete;
+        const report = preloadingDetailsComponent.contentElement.querySelector('devtools-report');
+        const keys = getCleanTextContentFromElements(report, 'devtools-report-key');
+        const values = getCleanTextContentFromElements(report, 'devtools-report-value');
+        assert.deepEqual(zip2(keys, values), [
+            ['URL', 'https://example.com/prerendered.html'],
+            ['Action', 'Prerender Inspect'],
+            ['Status', 'Speculative load is running'],
+        ]);
+        const buttons = report.querySelectorAll('devtools-report-value:nth-of-type(2) devtools-button');
+        assert.strictEqual(buttons[0].textContent?.trim(), 'Inspect');
+        assert.isNull(buttons[0].getAttribute('disabled'));
+    });
+    it('shows prerender details with Investigate button for Ready', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.prerenderStatusUpdated', {
+            key: {
+                loaderId: 'loaderId:1',
+                action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                url: 'https://example.com/prerendered.html',
+            },
+            status: "Ready" /* Protocol.Preload.PreloadingStatus.Ready */,
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        const preloadingDetailsComponent = view.getPreloadingDetailsForTest();
+        assert.isNotNull(preloadingDetailsComponent.contentElement);
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/prerendered.html',
+                'Prerender',
+                '',
+                'Ready',
+            ],
+        ]);
+        preloadingGridComponent.contentElement.querySelectorAll('tr')[1].dispatchEvent(new Event('select'));
+        await preloadingDetailsComponent.updateComplete;
+        const report = preloadingDetailsComponent.contentElement.querySelector('devtools-report');
+        const keys = getCleanTextContentFromElements(report, 'devtools-report-key');
+        const values = getCleanTextContentFromElements(report, 'devtools-report-value');
+        assert.deepEqual(zip2(keys, values), [
+            ['URL', 'https://example.com/prerendered.html'],
+            ['Action', 'Prerender Inspect'],
+            ['Status', 'Speculative load finished and the result is ready for the next navigation'],
+        ]);
+        const buttons = report.querySelectorAll('devtools-report-value:nth-of-type(2) devtools-button');
+        assert.strictEqual(buttons[0].textContent?.trim(), 'Inspect');
+        assert.isNull(buttons[0].getAttribute('disabled'));
+    });
+    it('shows prerender details with Investigate (disabled) button for Failure', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.prerenderStatusUpdated', {
+            key: {
+                loaderId: 'loaderId:1',
+                action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                url: 'https://example.com/prerendered.html',
+            },
+            status: "Failure" /* Protocol.Preload.PreloadingStatus.Failure */,
+            prerenderStatus: "MojoBinderPolicy" /* Protocol.Preload.PrerenderFinalStatus.MojoBinderPolicy */,
+            disallowedMojoInterface: 'device.mojom.GamepadMonitor',
+        });
+        // Note that `TargetManager.removeTarget` is not called on `Target.targetDestroyed`.
+        // Here, we manually remove the target for prerendered page from `TargetManager`.
+        const prerenderTarget = SDK.TargetManager.TargetManager.instance().targets().find(child => child.targetInfo()?.subtype === 'prerender' &&
+            child.inspectedURL() === 'https://example.com/prerendered.html');
+        prerenderTarget?.dispose('test');
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        const preloadingDetailsComponent = view.getPreloadingDetailsForTest();
+        assert.isNotNull(preloadingDetailsComponent.contentElement);
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            [
+                '/prerendered.html',
+                'Prerender',
+                '',
+                'Failure - The prerendered page used a forbidden JavaScript API that isn’t currently supported. (Internal Mojo interface: device.mojom.GamepadMonitor)',
+            ],
+        ]);
+        preloadingGridComponent.contentElement.querySelectorAll('tr')[1].dispatchEvent(new Event('select'));
+        await preloadingDetailsComponent.updateComplete;
+        const report = preloadingDetailsComponent.contentElement.querySelector('devtools-report');
+        const keys = getCleanTextContentFromElements(report, 'devtools-report-key');
+        const values = getCleanTextContentFromElements(report, 'devtools-report-value');
+        assert.deepEqual(zip2(keys, values), [
+            ['URL', 'https://example.com/prerendered.html'],
+            ['Action', 'Prerender Inspect'],
+            ['Status', 'Speculative load failed'],
+            [
+                'Failure reason',
+                'The prerendered page used a forbidden JavaScript API that isn’t currently supported. (Internal Mojo interface: device.mojom.GamepadMonitor)',
+            ],
+        ]);
+        const buttons = report.querySelectorAll('devtools-report-value:nth-of-type(2) devtools-button');
+        assert.strictEqual(buttons[0].textContent?.trim(), 'Inspect');
+        assert.strictEqual(buttons[0].shadowRoot?.querySelector('button')?.getAttribute('disabled'), '');
+    });
+    it('filters preloading attempts by URL text filter', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/subresource.js"]
+    }
+  ]
+}
+`);
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/subresource.js',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2],
+                },
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/prerendered.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.3'],
+                    nodeIds: [3],
+                },
+            ],
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        assert.isNotNull(preloadingGridComponent.contentElement);
+        // Initially shows both
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Running'],
+            ['/prerendered.html', 'Prerender', 'example.com/', 'Running'],
+        ]);
+        // Filter by URL
+        setTextFilter(view, 'url:subresource');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Running'],
+        ]);
+        // Clear filter
+        setTextFilter(view, '');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Running'],
+            ['/prerendered.html', 'Prerender', 'example.com/', 'Running'],
+        ]);
+    });
+    it('filters preloading attempts by action type', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/subresource.js"]
+    }
+  ]
+}
+`);
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/subresource.js',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2],
+                },
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/prerendered.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.3'],
+                    nodeIds: [3],
+                },
+            ],
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        // Filter by action (case-insensitive)
+        setTextFilter(view, 'action:prefetch');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Running'],
+        ]);
+        // Filter by prerender action
+        setTextFilter(view, 'action:Prerender');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/prerendered.html', 'Prerender', 'example.com/', 'Running'],
+        ]);
+    });
+    it('filters with case-insensitive keys', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/subresource.js"]
+    }
+  ]
+}
+`);
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/subresource.js',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2],
+                },
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/prerendered.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.3'],
+                    nodeIds: [3],
+                },
+            ],
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        // Upper-case key "Action:" should work the same as "action:"
+        setTextFilter(view, 'Action:prefetch');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Running'],
+        ]);
+        // Mixed case key "URL:" should work
+        setTextFilter(view, 'URL:prerendered');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/prerendered.html', 'Prerender', 'example.com/', 'Running'],
+        ]);
+        // Upper-case "Status:" should work
+        setTextFilter(view, 'Status:running');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Running'],
+            ['/prerendered.html', 'Prerender', 'example.com/', 'Running'],
+        ]);
+    });
+    it('filters preloading attempts by status', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/subresource.js"]
+    }
+  ]
+}
+`);
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/subresource.js',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2],
+                },
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/prerendered.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.3'],
+                    nodeIds: [3],
+                },
+            ],
+        });
+        // Update prefetch to Ready status
+        dispatchEvent(emulator.primaryTarget, 'Preload.prefetchStatusUpdated', {
+            key: {
+                loaderId: 'loaderId:1',
+                action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                url: 'https://example.com/subresource.js',
+            },
+            pipelineId: 'pipelineId:1',
+            status: "Ready" /* Protocol.Preload.PreloadingStatus.Ready */,
+            requestId: 'requestId:1',
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        // Filter by Ready status
+        setTextFilter(view, 'status:Ready');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Ready'],
+        ]);
+        // Filter by Running status
+        setTextFilter(view, 'status:running');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/prerendered.html', 'Prerender', 'example.com/', 'Running'],
+        ]);
+    });
+    it('searches all columns when no filter key specified', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/subresource.js"]
+    }
+  ]
+}
+`);
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/subresource.js',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2],
+                },
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/prerendered.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.3'],
+                    nodeIds: [3],
+                },
+            ],
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        // Search for "prefetch" without key - should match action column
+        setTextFilter(view, 'prefetch');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Running'],
+        ]);
+        // Search for ".html" - should match URL column
+        setTextFilter(view, '.html');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/prerendered.html', 'Prerender', 'example.com/', 'Running'],
+        ]);
+    });
+    it('does not filter when only key is typed without value', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/subresource.js"]
+    }
+  ]
+}
+`);
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/subresource.js',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2],
+                },
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/prerendered.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.3'],
+                    nodeIds: [3],
+                },
+            ],
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        // Type just "action:" - should show all results
+        setTextFilter(view, 'action:');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Running'],
+            ['/prerendered.html', 'Prerender', 'example.com/', 'Running'],
+        ]);
+    });
+    it('clear button hides existing attempts and resets text filter', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/subresource.js"]
+    }
+  ]
+}
+`);
+        await emulator.addSpecRules(`
+{
+  "prerender": [
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/subresource.js',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2],
+                },
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/prerendered.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.3'],
+                    nodeIds: [3],
+                },
+            ],
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        // Set a text filter first
+        setTextFilter(view, 'url:subresource');
+        await preloadingGridComponent.updateComplete;
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/subresource.js', 'Prefetch', 'example.com/', 'Running'],
+        ]);
+        assert.strictEqual(getTextFilter(view), 'url:subresource');
+        // Click clear button
+        clickClearButton(view);
+        await preloadingGridComponent.updateComplete;
+        // Text filter should be cleared
+        assert.strictEqual(getTextFilter(view), '');
+        // Grid should be empty because model was reset
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], []);
+    });
+    it('clear button resets model and new events repopulate', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createAttemptView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prefetch": [
+    {
+      "source": "list",
+      "urls": ["/subresource.js"]
+    }
+  ]
+}
+`);
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                        url: 'https://example.com/subresource.js',
+                    },
+                    ruleSetIds: ['ruleSetId:0.2'],
+                    nodeIds: [2],
+                },
+            ],
+        });
+        const preloadingGridComponent = view.getPreloadingGridForTest();
+        await preloadingGridComponent.updateComplete;
+        // Click clear button
+        clickClearButton(view);
+        await preloadingGridComponent.updateComplete;
+        // Grid should be empty after reset
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], []);
+        // New events arrive after reset - ruleSetUpdated re-infers loaderId
+        dispatchEvent(emulator.primaryTarget, 'Preload.ruleSetUpdated', {
+            ruleSet: {
+                id: 'ruleSetId:0.3',
+                loaderId: 'loaderId:1',
+                sourceText: '{"prerender":[{"source":"list","urls":["/newpage.html"]}]}',
+            },
+        });
+        dispatchEvent(emulator.primaryTarget, 'Preload.preloadingAttemptSourcesUpdated', {
+            loaderId: 'loaderId:1',
+            preloadingAttemptSources: [
+                {
+                    key: {
+                        loaderId: 'loaderId:1',
+                        action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                        url: 'https://example.com/newpage.html',
+                    },
+                    ruleSetIds: ['ruleSetId:0.3'],
+                    nodeIds: [2],
+                },
+            ],
+        });
+        await preloadingGridComponent.updateComplete;
+        // New attempt should be visible
+        assertGridWidgetContents(preloadingGridComponent.contentElement, ['URL', 'Action', 'Rule set', 'Status'], [
+            ['/newpage.html', 'Prerender', 'example.com/', 'Not triggered'],
+        ]);
+    });
+});
+describeWithEnvironment('PreloadingSummaryView', () => {
+    beforeEach(() => {
+        SDK.ChildTargetManager.ChildTargetManager.install();
+    });
+    it('shows information of preloading of the last page', async () => {
+        const emulator = new NavigationEmulator();
+        await emulator.openDevTools();
+        const view = createSummaryView(emulator.primaryTarget);
+        await emulator.navigateAndDispatchEvents('');
+        await emulator.addSpecRules(`
+{
+  "prerender":[
+    {
+      "source": "list",
+      "urls": ["/prerendered.html"]
+    }
+  ]
+}
+`);
+        await emulator.activateAndDispatchEvents('prerendered.html');
+        const usedPreloadingComponent = view.getUsedPreloadingForTest();
+        await usedPreloadingComponent.updateComplete;
+        assert.include(usedPreloadingComponent.contentElement.textContent, 'This page was successfully prerendered');
+    });
+});
+describeWithEnvironment('applyFilterText', () => {
+    const createRow = (id, action, url, status) => {
+        const key = {
+            loaderId: 'loaderId:1',
+            action,
+            url,
+        };
+        const attempt = action === "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */ ?
+            {
+                action: "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */,
+                key,
+                pipelineId: 'pipelineId:1',
+                status,
+                prefetchStatus: null,
+                requestId: 'requestId:1',
+                ruleSetIds: [],
+                nodeIds: [],
+            } :
+            {
+                action: "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */,
+                key,
+                pipelineId: 'pipelineId:2',
+                status,
+                prerenderStatus: null,
+                disallowedMojoInterface: null,
+                mismatchedHeaders: null,
+                ruleSetIds: [],
+                nodeIds: [],
+            };
+        return {
+            id,
+            pipeline: SDK.PreloadingModel.PreloadPipeline.newFromAttemptsForTesting([attempt]),
+            ruleSets: [],
+        };
+    };
+    it('returns original rows for empty/whitespace filters', () => {
+        const rows = [
+            createRow('r1', "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */, 'https://example.com/prefetch.html', "Running" /* SDK.PreloadingModel.PreloadingStatus.RUNNING */),
+        ];
+        assert.strictEqual(Resources.PreloadingView.applyFilterText('', rows), rows);
+        assert.strictEqual(Resources.PreloadingView.applyFilterText('   ', rows), rows);
+    });
+    it('filters by free text across url/action/status', () => {
+        const prefetch = createRow('id0', "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */, 'https://example.com/prefetch.html', "Running" /* SDK.PreloadingModel.PreloadingStatus.RUNNING */);
+        const prerender = createRow('id1', "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */, 'https://example.com/foo.html', "Pending" /* SDK.PreloadingModel.PreloadingStatus.PENDING */);
+        const f = Resources.PreloadingView.applyFilterText;
+        // url
+        assert.deepEqual(f('prefetch.html', [prefetch, prerender]), [prefetch]);
+        // action
+        assert.deepEqual(f('prerender', [prefetch, prerender]), [prerender]);
+        // status
+        assert.deepEqual(f('running', [prefetch, prerender]), [prefetch]);
+        // url and action
+        assert.deepEqual(f('prefetch', [prefetch, prerender]), [prefetch]);
+        // no match
+        assert.deepEqual(f('bar', [prefetch, prerender]), []);
+        // id is not checked
+        assert.deepEqual(f('id0', [prefetch, prerender]), []);
+    });
+    it('supports url/action/status key-value filters and AND logic', () => {
+        const prefetch = createRow('prefetch', "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */, 'https://example.com/prefetch.html', "Running" /* SDK.PreloadingModel.PreloadingStatus.RUNNING */);
+        const prerender = createRow('prerender', "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */, 'https://example.com/prerender.html', "Success" /* SDK.PreloadingModel.PreloadingStatus.SUCCESS */);
+        const f = Resources.PreloadingView.applyFilterText;
+        assert.deepEqual(f('url:prerender.html', [prefetch, prerender]), [prerender]);
+        assert.deepEqual(f('ACTION:prerender', [prefetch, prerender]), [prerender]);
+        assert.deepEqual(f('status:running url:prefetch', [prefetch, prerender]), [prefetch]);
+        // Filters targeting different rows return empty, confirming AND (not OR) semantics.
+        assert.deepEqual(f('status:running url:prerender', [prefetch, prerender]), []);
+    });
+    it('supports multiple status values separated by comma', () => {
+        const prefetch = createRow('prefetch', "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */, 'https://example.com/prefetch.html', "Running" /* SDK.PreloadingModel.PreloadingStatus.RUNNING */);
+        const prerender = createRow('prerender', "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */, 'https://example.com/prerender.html', "Success" /* SDK.PreloadingModel.PreloadingStatus.SUCCESS */);
+        const f = Resources.PreloadingView.applyFilterText;
+        assert.deepEqual(f('status:running,success', [prefetch, prerender]), [prefetch, prerender]);
+    });
+    it('ignores an incomplete trailing filter key so partial queries still work', () => {
+        const prefetch = createRow('prefetch', "Prefetch" /* Protocol.Preload.SpeculationAction.Prefetch */, 'https://example.com/prefetch.html', "Running" /* SDK.PreloadingModel.PreloadingStatus.RUNNING */);
+        const prerender = createRow('prerender', "Prerender" /* Protocol.Preload.SpeculationAction.Prerender */, 'https://example.com/prerender.html', "Success" /* SDK.PreloadingModel.PreloadingStatus.SUCCESS */);
+        const f = Resources.PreloadingView.applyFilterText;
+        assert.deepEqual(f('url:prefetch action:', [prefetch, prerender]), [prefetch]);
+        // Typing just a key should not hide everything.
+        assert.deepEqual(f('action:', [prefetch, prerender]), [prefetch, prerender]);
+    });
+});
+//# sourceMappingURL=PreloadingView.test.js.map

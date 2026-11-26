@@ -1,0 +1,47 @@
+# Copyright 2019 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+"""Framework for compressing resources using Brotli."""
+
+import subprocess
+
+__brotli_executable = None
+
+
+def SetBrotliCommand(brotli):
+  # brotli is a list. In production it contains the path to the Brotli executable.
+  # During testing it contains [python, mock_brotli.py] for testing on Windows.
+  global __brotli_executable
+  __brotli_executable = brotli
+
+  # Debian cross-build support
+  import os
+  wrapper_env = os.environ.get('HOST_EXEC_WRAPPER')
+  if wrapper_env and __brotli_executable:
+    __brotli_executable[0:0] = wrapper_env.split()
+
+def BrotliCompress(data):
+  if not __brotli_executable:
+    raise Exception(
+      'Add "use_brotli = true" to you GN grit(...) target '
+      + 'if you want to use brotli.'
+    )
+  compress = subprocess.Popen(
+    __brotli_executable + ['-', '-f'],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+  )
+  stdout, stderr = compress.communicate(data)
+  if compress.returncode != 0:
+    raise Exception(
+      'Brotli compression failed with return code %d: %s'
+      % (compress.returncode, stderr.decode('utf-8', errors='replace'))
+    )
+  return stdout
+
+
+def IsInitialized():
+  global __brotli_executable
+  return __brotli_executable is not None

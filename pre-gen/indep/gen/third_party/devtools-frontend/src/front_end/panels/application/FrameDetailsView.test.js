@@ -1,0 +1,272 @@
+// Copyright 2021 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+import sinon from 'sinon';
+import * as Root from '../../core/root/root.js';
+import * as SDK from '../../core/sdk/sdk.js';
+import * as Bindings from '../../models/bindings/bindings.js';
+import * as Workspace from '../../models/workspace/workspace.js';
+import { assertScreenshot, raf, renderElementIntoDOM, } from '../../testing/DOMHelpers.js';
+import { createTarget, describeWithEnvironment } from '../../testing/EnvironmentHelpers.js';
+import { dispatchEvent } from '../../testing/MockConnection.js';
+import * as Application from './application.js';
+const makeFrame = (target) => {
+    const newFrame = {
+        url: 'https://www.example.com/path/page.html',
+        securityOrigin: () => SDK.SecurityOrigin.SecurityOrigin.create('https://www.example.com'),
+        displayName: () => 'TestTitle',
+        unreachableUrl: () => '',
+        adFrameType: () => "none" /* Protocol.Page.AdFrameType.None */,
+        adFrameStatus: () => undefined,
+        getAdScriptAncestry: () => null,
+        resourceForURL: () => null,
+        isSecureContext: () => true,
+        isCrossOriginIsolated: () => true,
+        getCrossOriginIsolatedContextType: () => "NotIsolatedFeatureDisabled" /* Protocol.Page.CrossOriginIsolatedContextType.NotIsolatedFeatureDisabled */,
+        getSecureContextType: () => "SecureLocalhost" /* Protocol.Page.SecureContextType.SecureLocalhost */,
+        getGatedAPIFeatures: () => ["SharedArrayBuffers" /* Protocol.Page.GatedAPIFeatures.SharedArrayBuffers */,
+            "SharedArrayBuffersTransferAllowed" /* Protocol.Page.GatedAPIFeatures.SharedArrayBuffersTransferAllowed */],
+        getOwnerDOMNodeOrDocument: () => Promise.resolve({
+            nodeName: () => 'iframe',
+            nodeType: () => Node.ELEMENT_NODE,
+            pseudoType: () => undefined,
+            isViewTransitionPseudoNode: () => false,
+            nodeNameInCorrectCase: () => 'iframe',
+            getAttribute: () => null,
+        }),
+        resourceTreeModel: () => target.model(SDK.ResourceTreeModel.ResourceTreeModel),
+        getCreationStackTraceData: () => ({
+            creationStackTrace: {
+                callFrames: [{
+                        functionName: 'function1',
+                        url: 'http://www.example.com/script.js',
+                        lineNumber: 15,
+                        columnNumber: 10,
+                        scriptId: 'someScriptId',
+                    }],
+            },
+            creationStackTraceTarget: target,
+        }),
+        getOriginTrials: async () => ([
+            {
+                trialName: 'AppCache',
+                status: 'Enabled',
+                tokensWithStatus: [{
+                        status: 'Success',
+                        rawTokenText: 'Text',
+                        parsedToken: {
+                            trialName: 'AppCache',
+                            origin: 'https://foo.com',
+                            expiryTime: 1000,
+                            usageRestriction: 'None',
+                            isThirdParty: false,
+                            matchSubDomains: false,
+                        },
+                    }],
+            },
+        ]),
+        getPermissionsPolicyState: () => Promise.resolve(null),
+        parentFrame: () => null,
+    };
+    return newFrame;
+};
+describeWithEnvironment('FrameDetailsView', () => {
+    beforeEach(() => {
+        Root.Runtime.experiments.register({
+            name: Root.ExperimentNames.ExperimentName.PROTOCOL_MONITOR,
+            title: 'Protocol Monitor',
+            aboutFlag: 'devtools-protocol-monitor',
+            isEnabled: false,
+            requiresChromeRestart: false,
+        });
+        const workspace = Workspace.Workspace.WorkspaceImpl.instance({ forceNew: true });
+        const targetManager = SDK.TargetManager.TargetManager.instance();
+        const ignoreListManager = Workspace.IgnoreListManager.IgnoreListManager.instance({ forceNew: true });
+        Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance({
+            forceNew: true,
+            resourceMapping: new Bindings.ResourceMapping.ResourceMapping(targetManager, workspace),
+            targetManager,
+            ignoreListManager,
+            workspace,
+        });
+    });
+    it('renders with a title', async () => {
+        const frame = makeFrame(createTarget());
+        const component = new Application.FrameDetailsView.FrameDetailsReportView();
+        component.frame = frame;
+        renderElementIntoDOM(component);
+        await component.updateComplete;
+        const report = component.contentElement.querySelector('devtools-report');
+        const titleElement = report.shadowRoot.querySelector('.report-title');
+        assert.strictEqual(titleElement?.textContent, frame.displayName());
+    });
+    it('renders report keys and values', async () => {
+        const target = createTarget();
+        const scriptParsedEvent1 = {
+            scriptId: '123',
+            url: 'https://www.google.com/ad-script1.js',
+            startLine: 0,
+            startColumn: 0,
+            endLine: 10,
+            endColumn: 10,
+            executionContextId: 1234,
+            hash: '',
+            buildId: '',
+        };
+        dispatchEvent(target, 'Debugger.scriptParsed', scriptParsedEvent1);
+        const scriptParsedEvent2 = {
+            scriptId: '456',
+            url: 'https://www.google.com/ad-script2.js',
+            startLine: 0,
+            startColumn: 0,
+            endLine: 10,
+            endColumn: 10,
+            executionContextId: 1234,
+            hash: '',
+            buildId: '',
+        };
+        dispatchEvent(target, 'Debugger.scriptParsed', scriptParsedEvent2);
+        const frame = makeFrame(target);
+        frame.adFrameType = () => "root" /* Protocol.Page.AdFrameType.Root */;
+        frame.parentFrame = () => ({
+            getAdScriptAncestry: () => ({
+                ancestryChain: [
+                    {
+                        scriptId: '123',
+                        debuggerId: '',
+                    },
+                    {
+                        scriptId: '456',
+                        debuggerId: '',
+                    },
+                ],
+                rootScriptFilterlistRule: '/ad-script2.$script',
+            }),
+        });
+        const networkManager = target.model(SDK.NetworkManager.NetworkManager);
+        assert.exists(networkManager);
+        sinon.stub(networkManager, 'getSecurityIsolationStatus').resolves({
+            coep: {
+                value: "None" /* Protocol.Network.CrossOriginEmbedderPolicyValue.None */,
+                reportOnlyValue: "None" /* Protocol.Network.CrossOriginEmbedderPolicyValue.None */,
+            },
+            coop: {
+                value: "SameOrigin" /* Protocol.Network.CrossOriginOpenerPolicyValue.SameOrigin */,
+                reportOnlyValue: "SameOrigin" /* Protocol.Network.CrossOriginOpenerPolicyValue.SameOrigin */,
+            },
+            csp: [{
+                    source: "HTTP" /* Protocol.Network.ContentSecurityPolicySource.HTTP */,
+                    isEnforced: true,
+                    effectiveDirectives: 'base-uri \'self\'; object-src \'none\'; script-src \'strict-dynamic\' \'unsafe-inline\' https: http: \'nonce-GsVjHiIoejpPhMPOHDQZ90yc9eJn1s\' \'unsafe-eval\'; report-uri https://www.example.com/csp',
+                }],
+        });
+        const component = new Application.FrameDetailsView.FrameDetailsReportView();
+        component.frame = frame;
+        renderElementIntoDOM(component);
+        await component.updateComplete;
+        await raf();
+        const keys = [...component.contentElement.querySelectorAll('devtools-report-key')].map(k => k.deepInnerText());
+        assert.deepEqual(keys, [
+            'URL',
+            'Origin',
+            'Owner element',
+            'Frame creation stack trace',
+            'Ad status',
+            'Creator ad script ancestry',
+            'Root script filterlist rule',
+            'Secure context',
+            'Cross-origin isolated',
+            'Cross-Origin Embedder Policy (COEP)',
+            'Cross-Origin Opener Policy (COOP)',
+            'Content-Security-Policy',
+            'SharedArrayBuffers',
+            'Measure memory',
+        ]);
+        const values = [...component.contentElement.querySelectorAll('devtools-report-value')].map(v => v.deepInnerText());
+        assert.deepEqual(values, [
+            'https://www.example.com/path/page.html',
+            'https://www.example.com',
+            'iframe',
+            '\tfunction1\t@\twww.example.com/script.js:16',
+            'root',
+            'ad-script1.js:1',
+            '/ad-script2.$script',
+            'Yes\nLocalhost is always a secure context',
+            'Yes',
+            'none',
+            'same-origin',
+            `HTTP header
+base-uri: 'self'
+object-src: 'none'
+script-src: 'strict-dynamic', 'unsafe-inline', https:, http:, 'nonce-GsVjHiIoejpPhMPOHDQZ90yc9eJn1s', 'unsafe-eval'
+report-uri: https://www.example.com/csp`,
+            'available, transferable',
+            'available\nLearn more',
+        ]);
+        const stackTrace = component.contentElement.querySelector('devtools-report-value[jslog="Section; context: frame-creation-stack-trace"] devtools-widget');
+        const stackTraceText = stackTrace.deepInnerText().split('\n');
+        assert.deepEqual(stackTraceText[0], '\tfunction1\t@\twww.example.com/script.js:16');
+        const adStatusList = component.contentElement.querySelector('devtools-report-value.ad-status-list devtools-expandable-list');
+        assert.exists(adStatusList);
+        const adStatusExpandableButton = adStatusList.shadowRoot.querySelector('button');
+        assert.notExists(adStatusExpandableButton);
+        const adStatusItem = adStatusList.shadowRoot.querySelector('.expandable-list-items');
+        assert.exists(adStatusItem);
+        assert.strictEqual(adStatusItem.textContent?.trim(), 'root');
+        const adScriptAncestryList = component.contentElement.querySelector('devtools-report-value.creator-ad-script-ancestry-list devtools-expandable-list');
+        assert.exists(adScriptAncestryList);
+        const adScriptAncestryExpandableButton = adScriptAncestryList.shadowRoot.querySelector('button');
+        assert.exists(adScriptAncestryExpandableButton);
+        adScriptAncestryExpandableButton.click();
+        await raf();
+        const adScriptAncestryItems = adScriptAncestryList.shadowRoot.querySelectorAll('.expandable-list-items .devtools-link');
+        const adScriptsText = Array.from(adScriptAncestryItems).map(adScript => adScript.textContent?.trim());
+        assert.deepEqual(adScriptsText, ['ad-script1.js:1', 'ad-script2.js:1']);
+    });
+    it('renders icon buttons fully when narrow', async () => {
+        const target = createTarget();
+        const frame = makeFrame(target);
+        const container = document.createElement('div');
+        container.style.width = '250px';
+        renderElementIntoDOM(container, { includeCommonStyles: true });
+        const input = {
+            frame,
+            target: null,
+            creationStackTrace: null,
+            adScriptAncestry: null,
+            linkTargetDOMNode: null,
+            permissionsPolicies: null,
+            protocolMonitorExperimentEnabled: false,
+            trials: null,
+            securityIsolationInfo: null,
+            onRevealInNetwork: () => { },
+            onRevealInSources: () => { },
+        };
+        Application.FrameDetailsView.DEFAULT_VIEW(input, undefined, container);
+        await assertScreenshot('application/frame-details-narrow.png');
+    });
+    it('renders icon buttons close when wide', async () => {
+        const target = createTarget();
+        const frame = makeFrame(target);
+        const container = document.createElement('div');
+        container.style.width = '800px';
+        renderElementIntoDOM(container, { includeCommonStyles: true });
+        const input = {
+            frame,
+            target: null,
+            creationStackTrace: null,
+            adScriptAncestry: null,
+            linkTargetDOMNode: null,
+            permissionsPolicies: null,
+            protocolMonitorExperimentEnabled: false,
+            trials: null,
+            securityIsolationInfo: null,
+            onRevealInNetwork: () => { },
+            onRevealInSources: () => { },
+        };
+        Application.FrameDetailsView.DEFAULT_VIEW(input, undefined, container);
+        await assertScreenshot('application/frame-details-wide.png');
+    });
+});
+//# sourceMappingURL=FrameDetailsView.test.js.map

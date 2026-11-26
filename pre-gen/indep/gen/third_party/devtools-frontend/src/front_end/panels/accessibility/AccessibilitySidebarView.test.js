@@ -1,0 +1,93 @@
+// Copyright 2023 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+import sinon from 'sinon';
+import * as SDK from '../../core/sdk/sdk.js';
+import { assertScreenshot, renderElementIntoDOM } from '../../testing/DOMHelpers.js';
+import { createTarget, describeWithEnvironment, stubNoopSettings, updateHostConfig, } from '../../testing/EnvironmentHelpers.js';
+import { MockCDPConnection } from '../../testing/MockCDPConnection.js';
+import * as UI from '../../ui/legacy/legacy.js';
+import * as Accessibility from './accessibility.js';
+const NODE_ID = 1;
+describeWithEnvironment('AccessibilitySidebarView', () => {
+    let target;
+    let view;
+    beforeEach(() => {
+        stubNoopSettings();
+        UI.ActionRegistration.maybeRemoveActionExtension('elements.toggle-a11y-tree');
+        UI.ActionRegistration.registerActionExtension({
+            actionId: 'elements.toggle-a11y-tree',
+            category: "ELEMENTS" /* UI.ActionRegistration.ActionCategory.ELEMENTS */,
+            title: () => 'Toggle Accessibility Tree',
+            toggleable: true,
+        });
+        const connection = new MockCDPConnection();
+        connection.setSuccessHandler('DOM.getDocument', () => ({ root: { nodeId: NODE_ID } }));
+        connection.setSuccessHandler('DOM.getNodesForSubtreeByStyle', () => ({ nodeIds: [] }));
+        target = createTarget({ connection });
+    });
+    afterEach(() => {
+        UI.ActionRegistration.maybeRemoveActionExtension('elements.toggle-a11y-tree');
+        view?.detach();
+        view = undefined;
+        UI.ViewManager.ViewManager.removeInstance();
+    });
+    it('notifies ViewManager when visibility is toggled', async () => {
+        view = Accessibility.AccessibilitySidebarView.AccessibilitySidebarView.instance({ forceNew: true });
+        renderElementIntoDOM(view);
+        const viewManager = UI.ViewManager.ViewManager.instance();
+        const visibilitySpy = sinon.spy();
+        viewManager.addEventListener("ViewVisibilityChanged" /* UI.ViewManager.Events.VIEW_VISIBILITY_CHANGED */, visibilitySpy);
+        const action = UI.ActionRegistry.ActionRegistry.instance().getAction('elements.toggle-a11y-tree');
+        action.setToggled(true);
+        sinon.assert.calledWith(visibilitySpy, sinon.match({ data: sinon.match({ revealedViewId: 'aria-attributes' }) }));
+        action.setToggled(false);
+        sinon.assert.calledWith(visibilitySpy, sinon.match({ data: sinon.match({ hiddenViewId: 'aria-attributes' }) }));
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updatesUiOnEvent = (event, inScope) => async () => {
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(inScope ? target : null);
+        const domModel = target.model(SDK.DOMModel.DOMModel);
+        assert.exists(domModel);
+        const accessibilityModel = target.model(SDK.AccessibilityModel.AccessibilityModel);
+        assert.exists(accessibilityModel);
+        const requestPartialAXTree = sinon.stub(accessibilityModel, 'requestPartialAXTree');
+        requestPartialAXTree.resolves();
+        const node = new SDK.DOMModel.DOMNode(domModel);
+        view = Accessibility.AccessibilitySidebarView.AccessibilitySidebarView.instance({ forceNew: true });
+        renderElementIntoDOM(view);
+        view.setNode(node);
+        await view.updateComplete;
+        requestPartialAXTree.resetHistory();
+        domModel.dispatchEventToListeners(event, { node });
+        await view.updateComplete;
+        assert.strictEqual(requestPartialAXTree.called, inScope);
+    };
+    it('updates UI on in scope attribute modified event', updatesUiOnEvent(SDK.DOMModel.Events.AttrModified, true));
+    it('does not update UI on out of scope attribute modified event', updatesUiOnEvent(SDK.DOMModel.Events.AttrModified, false));
+    it('updates UI on in scope attribute removed event', updatesUiOnEvent(SDK.DOMModel.Events.AttrRemoved, true));
+    it('does not update UI on out of scope attribute removed event', updatesUiOnEvent(SDK.DOMModel.Events.AttrRemoved, false));
+    it('updates UI on in scope charachter data modified event', updatesUiOnEvent(SDK.DOMModel.Events.CharacterDataModified, true));
+    it('does not update UI on out of scope charachter data modified event', updatesUiOnEvent(SDK.DOMModel.Events.CharacterDataModified, false));
+    it('updates UI on in scope child node count updated event', updatesUiOnEvent(SDK.DOMModel.Events.ChildNodeCountUpdated, true));
+    it('does not update UI on out of scope child node count updated event', updatesUiOnEvent(SDK.DOMModel.Events.ChildNodeCountUpdated, false));
+    it('renders the view', async () => {
+        view = Accessibility.AccessibilitySidebarView.AccessibilitySidebarView.instance({ forceNew: true });
+        renderElementIntoDOM(view, { includeCommonStyles: true });
+        await assertScreenshot('accessibility/accessibility_sidebar_view.png');
+    });
+    it('shows announcement recording subpane when enabled in hostConfig', async () => {
+        updateHostConfig({ devToolsAriaLiveRecording: { enabled: true } });
+        view = Accessibility.AccessibilitySidebarView.AccessibilitySidebarView.instance({ forceNew: true });
+        renderElementIntoDOM(view);
+        assert.isTrue(UI.ViewManager.ViewManager.instance().hasView('aria-live-recording'));
+    });
+    it('does not show announcement recording subpane when disabled in hostConfig', async () => {
+        updateHostConfig({ devToolsAriaLiveRecording: { enabled: false } });
+        view = Accessibility.AccessibilitySidebarView.AccessibilitySidebarView.instance({ forceNew: true });
+        renderElementIntoDOM(view);
+        assert.isFalse(UI.ViewManager.ViewManager.instance().hasView('aria-live-recording'));
+    });
+});
+//# sourceMappingURL=AccessibilitySidebarView.test.js.map

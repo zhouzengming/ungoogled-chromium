@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/security/security-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/security/security-meta.ts

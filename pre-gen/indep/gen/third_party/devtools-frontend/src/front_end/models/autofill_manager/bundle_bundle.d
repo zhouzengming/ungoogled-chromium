@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/autofill_manager/autofill_manager.js: ../../third_party/devtools-frontend/src/front_end/models/autofill_manager/AutofillManager.ts ../../third_party/devtools-frontend/src/front_end/models/autofill_manager/autofill_manager.ts

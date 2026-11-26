@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/wasmparser/wasmparser.js: ../../third_party/devtools-frontend/src/front_end/third_party/wasmparser/package/dist/esm/WasmParser.js ../../third_party/devtools-frontend/src/front_end/third_party/wasmparser/package/dist/esm/WasmDis.js ../../third_party/devtools-frontend/src/front_end/third_party/wasmparser/wasmparser.ts

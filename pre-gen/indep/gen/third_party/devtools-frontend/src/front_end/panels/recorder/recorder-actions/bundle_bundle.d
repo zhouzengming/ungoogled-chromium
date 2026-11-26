@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/recorder/recorder-actions/recorder-actions.js: ../../third_party/devtools-frontend/src/front_end/panels/recorder/recorder-actions/recorder-actions.ts

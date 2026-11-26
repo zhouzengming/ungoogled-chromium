@@ -1,0 +1,10 @@
+import type { DevToolsPage } from '../shared/DevToolsPage.js';
+export declare function clickOnContextMenuItemFromTab(devToolsPage: DevToolsPage, tabId: string, menuItemSelector: string): Promise<void>;
+export declare const MOVE_TO_DRAWER_SELECTOR = "[aria-label=\"Move to drawer\"]";
+export declare const MOVE_TO_MAIN_TAB_BAR_SELECTOR = "[aria-label=\"Move to main tab bar\"]";
+export declare const MAIN_PANEL_SELECTOR = "div[class*=\"main-tabbed-pane\"][slot*=\"main\"]";
+export declare const DRAWER_PANEL_SELECTOR = "div[class*=\"drawer-tabbed-pane\"][slot*=\"sidebar\"]";
+export declare const TAB_HEADER_SELECTOR = "div[class*=\"tabbed-pane-header\"]";
+export declare function tabExistsInMainPanel(devToolsPage: DevToolsPage, tabId: string): Promise<void>;
+export declare function tabExistsInDrawer(devToolsPage: DevToolsPage, tabId: string): Promise<void>;
+export declare const checkIfTabExistsInDrawer: (devToolsPage: DevToolsPage, tabId: string) => Promise<boolean>;

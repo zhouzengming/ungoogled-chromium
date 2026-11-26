@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/entrypoints/inspector/inspector.js: ../../third_party/devtools-frontend/src/front_end/entrypoints/inspector/inspector.ts

@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/intl-messageformat/intl-messageformat.js: ../../third_party/devtools-frontend/src/front_end/third_party/intl-messageformat/package/intl-messageformat.esm.js ../../third_party/devtools-frontend/src/front_end/third_party/intl-messageformat/intl-messageformat.ts

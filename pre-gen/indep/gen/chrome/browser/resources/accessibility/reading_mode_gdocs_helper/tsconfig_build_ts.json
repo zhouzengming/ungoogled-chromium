@@ -1,0 +1,19 @@
+{
+  "extends": "../../../../../../../../tools/typescript/tsconfig_base.json",
+  "compilerOptions": {
+    "rootDir": "../../../../../../../../chrome/browser/resources/accessibility/reading_mode_gdocs_helper",
+    "outDir": "tsc",
+    "skipLibCheck": true,
+    "paths": {
+      "/tools/typescript/definitions/*": [
+        "./../../../../../../../../tools/typescript/definitions/*"
+      ]
+    }
+  },
+  "files": [
+    "../../../../../../../../chrome/browser/resources/accessibility/reading_mode_gdocs_helper/content.ts",
+    "../../../../../../../../tools/typescript/definitions/chrome_event.d.ts",
+    "../../../../../../../../tools/typescript/definitions/runtime.d.ts",
+    "../../../../../../../../tools/typescript/definitions/tabs.d.ts"
+  ]
+}

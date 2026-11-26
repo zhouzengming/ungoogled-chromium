@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/timeline/extensions/extensions.js: ../../third_party/devtools-frontend/src/front_end/panels/timeline/extensions/ExtensionUI.ts ../../third_party/devtools-frontend/src/front_end/panels/timeline/extensions/extensions.ts

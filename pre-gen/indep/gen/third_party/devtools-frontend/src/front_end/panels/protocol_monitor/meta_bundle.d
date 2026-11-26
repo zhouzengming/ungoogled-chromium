@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/protocol_monitor/protocol_monitor-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/protocol_monitor/protocol_monitor-meta.ts

@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/performance_monitor/performance_monitor-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/performance_monitor/performance_monitor-meta.ts

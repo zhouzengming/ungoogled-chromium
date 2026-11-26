@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/trace/lantern/testing/testing.js: ../../third_party/devtools-frontend/src/front_end/models/trace/lantern/testing/MetricTestUtils.ts ../../third_party/devtools-frontend/src/front_end/models/trace/lantern/testing/testing.ts

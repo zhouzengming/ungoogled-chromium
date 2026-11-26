@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/computed_style/computed_style.js: ../../third_party/devtools-frontend/src/front_end/models/computed_style/ComputedStyleModel.ts ../../third_party/devtools-frontend/src/front_end/models/computed_style/computed_style.ts

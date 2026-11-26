@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/crux-manager/crux-manager.js: ../../third_party/devtools-frontend/src/front_end/models/crux-manager/CrUXManager.ts ../../third_party/devtools-frontend/src/front_end/models/crux-manager/crux-manager.ts

@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/entrypoints/heap_snapshot_worker/heap_snapshot_worker-entrypoint.js: ../../third_party/devtools-frontend/src/front_end/entrypoints/heap_snapshot_worker/heap_snapshot_worker-entrypoint.ts

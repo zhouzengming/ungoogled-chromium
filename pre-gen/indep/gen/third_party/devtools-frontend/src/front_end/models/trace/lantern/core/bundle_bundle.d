@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/trace/lantern/core/core.js: ../../third_party/devtools-frontend/src/front_end/models/trace/lantern/core/LanternError.ts ../../third_party/devtools-frontend/src/front_end/models/trace/lantern/core/NetworkAnalyzer.ts ../../third_party/devtools-frontend/src/front_end/models/trace/lantern/core/core.ts

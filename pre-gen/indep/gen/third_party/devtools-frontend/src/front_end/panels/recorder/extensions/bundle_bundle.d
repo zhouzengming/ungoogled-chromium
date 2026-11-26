@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/recorder/extensions/extensions.js: ../../third_party/devtools-frontend/src/front_end/panels/recorder/extensions/ExtensionManager.ts ../../third_party/devtools-frontend/src/front_end/panels/recorder/extensions/extensions.ts

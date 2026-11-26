@@ -1,0 +1,48 @@
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
+const sheet = new CSSStyleSheet();
+sheet.replaceSync(`
+/* We keep our vars in sort order, though some vars must be defined prior to
+ * others. The --settings-* vars are defined explicitly prior to the --paper-*
+ * and --iron-* vars.
+ */
+html {
+  /* Some colors use non-MD colors.  These custom colors are specified by
+   * UX design (bettes@). */
+
+  --settings-error-color: var(--google-red-700);
+
+  --iron-icon-fill-color: var(--google-grey-700);
+  --iron-icon-height: var(--cr-icon-size);
+  --iron-icon-width: var(--cr-icon-size);
+
+  --cr-radio-group-item-padding: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  html {
+    --iron-icon-fill-color: var(--google-grey-500);
+    --settings-error-color: var(--google-red-300);
+  }
+}
+
+html[settings-refresh-2026] {
+  --color-settings-radio-card-selected:
+      var(--color-sys-primary-container, var(--google-blue-50));
+  --search-highlight-hit-background-color: transparent;
+  --search-highlight-hit-color: inherit;
+  --search-highlight-hit-font-weight: bold;
+}
+
+@media (prefers-color-scheme: dark) {
+  html[settings-refresh-2026] {
+    --color-settings-radio-card-selected:
+        var(--color-sys-primary-container, rgba(0, 74, 119, 1));
+  }
+}
+
+@media (forced-colors: active) {
+  html[settings-refresh-2026] {
+    --color-settings-radio-card-selected: Highlight;
+  }
+}`);
+document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];

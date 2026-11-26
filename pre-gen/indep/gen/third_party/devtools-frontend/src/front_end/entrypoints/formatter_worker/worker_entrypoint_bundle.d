@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/entrypoints/formatter_worker/formatter_worker-entrypoint.js: ../../third_party/devtools-frontend/src/front_end/entrypoints/formatter_worker/formatter_worker-entrypoint.ts

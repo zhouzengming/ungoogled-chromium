@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/entrypoints/formatter_actions/formatter_actions.js: ../../third_party/devtools-frontend/src/front_end/entrypoints/formatter_actions/formatter_actions.ts

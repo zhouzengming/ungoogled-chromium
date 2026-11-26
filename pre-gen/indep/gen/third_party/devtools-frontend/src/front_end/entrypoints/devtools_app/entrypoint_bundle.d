@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/entrypoints/devtools_app/devtools_app.js: ../../third_party/devtools-frontend/src/front_end/entrypoints/devtools_app/devtools_app.ts

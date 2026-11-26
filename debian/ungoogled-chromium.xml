@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE default-apps SYSTEM "gnome-da-list.dtd">
+<default-apps>
+  <web-browsers>
+    <web-browser>
+      <name>Ungoogled-Chromium</name>
+      <executable>ungoogled-chromium</executable>
+      <command>/usr/bin/ungoogled-chromium %s</command>
+      <icon-name>ungoogled-chromium</icon-name>
+      <run-in-terminal>false</run-in-terminal>
+      <netscape-remote>true</netscape-remote>
+      <tab-command>/usr/bin/ungoogled-chromium %s</tab-command>
+      <win-command>/usr/bin/ungoogled-chromium --new-window %s</win-command>
+    </web-browser>
+  </web-browsers>
+</default-apps>

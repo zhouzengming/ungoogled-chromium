@@ -1,0 +1,153 @@
+// Copyright 2024 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+var _a;
+import { AsyncScope } from './async-scope.js';
+import { dumpCollectedErrors } from './events.js';
+import { ScreenshotError } from './screenshot-error.js';
+import { TestConfig } from './test_config.js';
+export class InstrumentedTestFunction {
+    /**
+     * We track the initial timeouts for each context if we reset it back
+     * Mocha check timing of the full executed function and fails
+     * the test.
+     * https://github.com/mochajs/mocha/blob/main/lib/runnable.js#L307
+     */
+    static timeoutByContext = new WeakMap();
+    /**
+     * We track the initial timeouts for each functions because mocha
+     * does not reset test timeout for retries.
+     */
+    static timeoutByTestFunction = new WeakMap();
+    #abortController = new AbortController();
+    state;
+    fn;
+    label;
+    suite;
+    stateProvider;
+    actualTimeout = 0;
+    originalContextTimeout = 0;
+    constructor(fn, label, suite, stateProvider) {
+        this.fn = fn;
+        this.label = label;
+        this.suite = suite;
+        this.stateProvider = stateProvider;
+    }
+    async #executeTest(context) {
+        this.#abortController = new AbortController();
+        AsyncScope.abortSignal = this.#abortController.signal;
+        if (this.state) {
+            // eslint-disable-next-line no-debugger
+            debugger; // If you're paused here while debugging, stepping into the next line will step into your test.
+        }
+        const start = performance.now();
+        const testResult = await (this.state === undefined ? this.fn.call(context) :
+            this.fn.call(undefined, this.state));
+        if (context.test) {
+            context.test.realDuration = Math.ceil(performance.now() - start);
+        }
+        return testResult;
+    }
+    #buildErrorFromTimedoutScopeStacks(context) {
+        const stacks = [];
+        const scopes = AsyncScope.scopes;
+        for (const scope of scopes.values()) {
+            const { descriptions, stack } = scope;
+            if (stack) {
+                const stepDescription = descriptions.length > 0 ? `${descriptions.join(' > ')}:\n` : '';
+                stacks.push(`${stepDescription}${stack.join('\n')}\n`);
+            }
+        }
+        const err = new Error(`A test function (${this.label}) for "${context.test?.title}" timed out (${this.actualTimeout} ms)`);
+        if (stacks.length > 0) {
+            const msg = `Pending async operations during timeout:\n${stacks.join('\n\n')}`;
+            err.cause = new Error(msg);
+        }
+        return err;
+    }
+    #setupTimeout(context) {
+        this.originalContextTimeout = _a.timeoutByContext.get(context) ?? context.timeout();
+        this.actualTimeout = _a.timeoutByTestFunction.get(this.fn) ?? this.originalContextTimeout;
+        _a.timeoutByContext.set(context, this.originalContextTimeout);
+        _a.timeoutByTestFunction.set(this.fn, this.actualTimeout);
+        // Disable mocha test timeout.
+        // This way we rely only on our timeouts
+        context.timeout(0);
+    }
+    async #executeWithTimeout(context) {
+        // This needs to be the first thing we do
+        // Else we may hit Mocha's timeouts
+        this.#setupTimeout(context);
+        // Get the state before starting the test timeouts
+        this.state = (this.suite && this.stateProvider) ? await this.stateProvider.createState(this.suite) : undefined;
+        let cleanupTimeoutPromise = undefined;
+        let timeoutPromise = undefined;
+        const executionPromise = this.#executeTest(context);
+        if (this.actualTimeout !== 0) {
+            timeoutPromise = new Promise((_, reject) => {
+                const timeout = setTimeout(async () => {
+                    reject(this.#buildErrorFromTimedoutScopeStacks(context));
+                }, this.actualTimeout);
+                cleanupTimeoutPromise = () => {
+                    clearTimeout(timeout);
+                    // Don't keep the Promise as pending
+                    reject();
+                };
+            });
+        }
+        const racePromise = timeoutPromise ? Promise.race([executionPromise, timeoutPromise]) : executionPromise;
+        return await racePromise
+            .then(() => {
+            this.#abortController.abort();
+            AsyncScope.abortSignal = undefined;
+        }, async (err) => {
+            this.#abortController.abort();
+            AsyncScope.abortSignal = undefined;
+            if (this.stateProvider?.onTestError) {
+                err = await this.stateProvider.onTestError(this.state, err);
+            }
+            throw err;
+        })
+            .finally(async () => {
+            cleanupTimeoutPromise?.();
+            if (this.stateProvider?.cleanupState && this.state !== undefined) {
+                try {
+                    await this.stateProvider.cleanupState(this.state);
+                }
+                catch (e) {
+                    console.error('Unexpected error during cleanup', e);
+                }
+            }
+            dumpCollectedErrors();
+        });
+    }
+    static instrument(fn, label, suite, stateProvider) {
+        const test = new _a(fn, label, suite, stateProvider);
+        return async function () {
+            return await test.#executeWithTimeout(this);
+        };
+    }
+}
+_a = InstrumentedTestFunction;
+/**
+ * Default state provider for conductor test suites that manage their browser pages
+ * via puppeteer-state (such as extensions/cxx_debugging). Captures screenshots
+ * on test failures or timeouts if active pages are registered.
+ */
+export class DefaultPuppeteerStateProvider {
+    static instance = new DefaultPuppeteerStateProvider();
+    async createState() {
+        return undefined;
+    }
+    async onTestError(_state, error) {
+        if (error instanceof ScreenshotError || TestConfig.debug) {
+            return error;
+        }
+        // TODO: Capture frontend and target screenshots.
+        return error;
+    }
+}
+export function makeInstrumentedTestFunction(fn, label) {
+    return InstrumentedTestFunction.instrument(fn, label, undefined, DefaultPuppeteerStateProvider.instance);
+}
+//# sourceMappingURL=mocha-interface-helpers.js.map

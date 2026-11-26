@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/layer_viewer/layer_viewer-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/layer_viewer/layer_viewer-meta.ts

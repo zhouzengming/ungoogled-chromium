@@ -1,0 +1,25 @@
+// Copyright 2022 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { CustomizeChromePageCallbackRouter, CustomizeChromePageHandlerFactory, CustomizeChromePageHandlerRemote } from './customize_chrome.mojom-webui.js';
+export class CustomizeChromeApiProxy {
+    handler;
+    callbackRouter;
+    constructor(handler, callbackRouter) {
+        this.handler = handler;
+        this.callbackRouter = callbackRouter;
+    }
+    static getInstance() {
+        if (!instance) {
+            const handler = new CustomizeChromePageHandlerRemote();
+            const callbackRouter = new CustomizeChromePageCallbackRouter();
+            CustomizeChromePageHandlerFactory.getRemote().createPageHandler(callbackRouter.$.bindNewPipeAndPassRemote(), handler.$.bindNewPipeAndPassReceiver());
+            instance = new CustomizeChromeApiProxy(handler, callbackRouter);
+        }
+        return instance;
+    }
+    static setInstance(handler, callbackRouter) {
+        instance = new CustomizeChromeApiProxy(handler, callbackRouter);
+    }
+}
+let instance = null;

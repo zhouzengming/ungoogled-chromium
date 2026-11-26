@@ -1,0 +1,15 @@
+default_for_rust_host_build_tools/gen/build/rust/allocator/alloc_error_handler_impl_ffi_generator/bindings.rs
+default_host_with_system_allocator/gen/build/rust/allocator/alloc_error_handler_impl_ffi_generator/bindings.rs
+default_with_system_allocator/gen/base/logging/log_severity_bindgen_generator/bindings.rs
+default_with_system_allocator/gen/build/rust/allocator/alloc_error_handler_impl_ffi_generator/bindings.rs
+gen/base/logging/log_severity_bindgen_generator/bindings.rs
+gen/build/rust/allocator/alloc_error_handler_impl_ffi_generator/bindings.rs
+gen/build/rust/allocator/allocator_impls_ffi_generator/bindings.rs
+gen/build/rust/tests/bindgen_cpp_test/cpp_lib_bindgen_generator/bindings.rs
+gen/build/rust/tests/bindgen_cpp_test_with_cpp_linkage/cpp_lib_bindgen_generator/bindings.rs
+gen/build/rust/tests/bindgen_static_fns_test/c_lib_bindgen_generator/bindings.rs
+gen/build/rust/tests/bindgen_test/c_lib_bindgen_generator/bindings.rs
+gen/mojo/public/rust/c_mojo_api/mojo_c_system_bindings_generator/bindings.rs
+gen/third_party/boringssl/raw_bssl_sys_bindings/bindgen.rs
+gen/third_party/crabbyavif/crabbyavif_dav1d_bindings/dav1d_bindgen.rs
+gen/third_party/crabbyavif/crabbyavif_libyuv_bindings/libyuv_bindgen.rs

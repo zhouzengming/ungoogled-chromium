@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/stack_trace/stack_trace.js: ../../third_party/devtools-frontend/src/front_end/models/stack_trace/StackTrace.ts ../../third_party/devtools-frontend/src/front_end/models/stack_trace/stack_trace.ts

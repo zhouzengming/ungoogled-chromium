@@ -1,0 +1,1 @@
+gen/build/rust/tests/bindgen_static_fns_test/c_lib_bindgen_generator/bindings.rs: ../../build/rust/tests/bindgen_static_fns_test/lib.h

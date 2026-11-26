@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/browser_debugger/browser_debugger-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/browser_debugger/browser_debugger-meta.ts

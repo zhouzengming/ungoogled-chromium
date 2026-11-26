@@ -1,0 +1,16 @@
+export declare const MIN_SCHEME: number;
+export declare const DEFAULT_SCHEME: number;
+export declare const MAX_SCHEME: number;
+export declare const $: <T extends HTMLElement = HTMLElement>(id: string) => T | null;
+export declare const getEnabled: () => Promise<boolean>;
+export declare const setEnabled: (enabled: boolean) => Promise<void>;
+export declare const getKeyAction: () => Promise<string>;
+export declare const setKeyAction: (keyAction: string) => Promise<void>;
+export declare const getDefaultScheme: () => Promise<number>;
+export declare const setDefaultScheme: (scheme: number) => Promise<void>;
+export declare const getSiteScheme: (site: string) => Promise<number>;
+export declare const setSiteScheme: (site: string, scheme: number) => Promise<void>;
+export declare const resetSiteSchemes: () => Promise<void>;
+export declare const siteFromUrl: (url: string) => string;
+export declare const isDisallowedUrl: (url: string) => boolean;
+export declare function isMacOS(): boolean;

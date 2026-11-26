@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/services/trace_bounds/trace_bounds.js: ../../third_party/devtools-frontend/src/front_end/services/trace_bounds/TraceBounds.ts ../../third_party/devtools-frontend/src/front_end/services/trace_bounds/trace_bounds.ts

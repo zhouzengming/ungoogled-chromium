@@ -1,0 +1,53 @@
+--- a/chrome/browser/search/search.cc
++++ b/chrome/browser/search/search.cc
+@@ -96,6 +96,7 @@ enum NewTabURLState {
+   NEW_TAB_URL_MAX
+ };
+ 
++[[maybe_unused]]
+ const TemplateURL* GetDefaultSearchProviderTemplateURL(Profile* profile) {
+   if (profile) {
+     TemplateURLService* template_url_service =
+@@ -143,6 +144,7 @@ bool IsNTPOrRelatedURLHelper(const GURL&
+                                     IsMatchingServiceWorker(url, new_tab_url));
+ }
+ 
++[[maybe_unused]]
+ bool IsURLAllowedForSupervisedUser(const GURL& url, Profile& profile) {
+   if (!profile.IsChild()) {
+     return true;
+@@ -194,33 +196,8 @@ struct NewTabURLDetails {
+     const GURL local_url(default_is_google
+                              ? chrome::ChromeUINewTabPageURLAsGURL()
+                              : GURL(chrome::kChromeUINewTabPageThirdPartyURL));
+-    if (default_is_google) {
+-      return NewTabURLDetails(local_url, NEW_TAB_URL_VALID);
+-    }
+ #endif
+-
+-    const TemplateURL* template_url =
+-        GetDefaultSearchProviderTemplateURL(profile);
+-    if (!profile || !template_url) {
+-      return NewTabURLDetails(local_url, NEW_TAB_URL_BAD);
+-    }
+-
+-    GURL search_provider_url(template_url->new_tab_url_ref().ReplaceSearchTerms(
+-        TemplateURLRef::SearchTermsArgs(std::u16string()),
+-        UIThreadSearchTermsData()));
+-
+-    if (!search_provider_url.is_valid()) {
+-      return NewTabURLDetails(local_url, NEW_TAB_URL_NOT_SET);
+-    }
+-    if (!search_provider_url.SchemeIsCryptographic()) {
+-      return NewTabURLDetails(local_url, NEW_TAB_URL_INSECURE);
+-    }
+-    if (!IsURLAllowedForSupervisedUser(search_provider_url,
+-                                       CHECK_DEREF(profile))) {
+-      return NewTabURLDetails(local_url, NEW_TAB_URL_BLOCKED);
+-    }
+-
+-    return NewTabURLDetails(search_provider_url, NEW_TAB_URL_VALID);
++    return NewTabURLDetails(local_url, NEW_TAB_URL_VALID);
+   }
+ 
+   const GURL url;

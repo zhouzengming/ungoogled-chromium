@@ -1,0 +1,13 @@
+// Copyright 2026 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+describe('e2e', () => {
+    it('run1', () => {
+        assert.strictEqual(1 + 1, 2, 'Math works');
+    });
+    it('run1', () => {
+        assert.strictEqual(1 + 1, 2, 'Math works');
+    });
+});
+//# sourceMappingURL=duplicate.test.js.map

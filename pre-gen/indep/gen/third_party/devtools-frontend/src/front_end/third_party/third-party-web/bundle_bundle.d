@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/third-party-web/third-party-web.js: ../../third_party/devtools-frontend/src/front_end/third_party/third-party-web/lib/nostats-subset.js ../../third_party/devtools-frontend/src/front_end/third_party/third-party-web/third-party-web.ts

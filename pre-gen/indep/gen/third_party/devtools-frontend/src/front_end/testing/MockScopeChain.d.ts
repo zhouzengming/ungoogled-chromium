@@ -1,0 +1,56 @@
+import * as ProtocolClient from '../core/protocol_client/protocol_client.js';
+import * as SDK from '../core/sdk/sdk.js';
+import * as Protocol from '../generated/protocol.js';
+import { type CommandHandlerResponse, MockCDPConnection } from './MockCDPConnection.js';
+import { createTarget } from './TargetHelpers.js';
+import { TestUniverse } from './TestUniverse.js';
+interface ScriptDescription {
+    url: string;
+    content: string;
+    hasSourceURL?: boolean;
+    startLine?: number;
+    startColumn?: number;
+    isContentScript?: boolean;
+    embedderName?: string;
+    executionContextId?: number;
+    scriptLanguage?: Protocol.Debugger.ScriptLanguage;
+}
+interface ScopePosition {
+    type: Protocol.Debugger.ScopeType;
+    startLine: number;
+    startColumn: number;
+    endLine: number;
+    endColumn: number;
+}
+export declare function parseScopeChain(scopeDescriptor: string): ScopePosition[];
+/**
+ * Drop-in replacement for {@link MockProtocolBackend} but doesn't use any global state.
+ *
+ * Creates a new {@link TestUniverse}, accessible via `mockDebuggerBackend.universe`.
+ */
+export declare class MockDebuggerBackend {
+    #private;
+    readonly universe: TestUniverse;
+    /** The mock connection used for all targets created with this MockDebuggerBackend instance */
+    readonly cdpConnection: MockCDPConnection;
+    constructor();
+    createTarget(options?: Parameters<typeof createTarget>[0]): SDK.Target.Target;
+    dispatchDebuggerPause(script: SDK.Script.Script, reason: Protocol.Debugger.PausedEventReason, functionName?: string, scopeChain?: Protocol.Debugger.Scope[]): void;
+    dispatchDebuggerPauseWithNoCallFrames(target: SDK.Target.Target, reason: Protocol.Debugger.PausedEventReason): void;
+    addScript(target: SDK.Target.Target, scriptDescription: ScriptDescription, sourceMap: {
+        url: string;
+        content: string | SDK.SourceMap.SourceMapV3;
+    } | null): Promise<SDK.Script.Script>;
+    createSimpleRemoteObject(properties: Array<{
+        name: string;
+        value?: number;
+    }>): Protocol.Runtime.RemoteObject;
+    createCallFrame(target: SDK.Target.Target, script: ScriptDescription, scopeDescriptor: string, sourceMap: {
+        url: string;
+        content: string;
+    } | null, scopeObjects?: Protocol.Runtime.RemoteObject[], emptyScopes?: boolean[]): Promise<SDK.DebuggerModel.CallFrame>;
+    responderToBreakpointByUrlRequest(url: string, lineNumber: number): (response: CommandHandlerResponse<'Debugger.setBreakpointByUrl'> | ProtocolClient.CDPConnection.CommandResult<'Debugger.setBreakpointByUrl'>) => Promise<void>;
+    setBreakpointByUrlToFail(url: string, lineNumber: number): void;
+    breakpointRemovedPromise(breakpointId: Protocol.Debugger.BreakpointId): Promise<void>;
+}
+export {};

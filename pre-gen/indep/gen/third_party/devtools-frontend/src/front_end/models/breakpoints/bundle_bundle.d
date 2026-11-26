@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/breakpoints/breakpoints.js: ../../third_party/devtools-frontend/src/front_end/models/breakpoints/BreakpointManager.ts ../../third_party/devtools-frontend/src/front_end/models/breakpoints/breakpoints.ts

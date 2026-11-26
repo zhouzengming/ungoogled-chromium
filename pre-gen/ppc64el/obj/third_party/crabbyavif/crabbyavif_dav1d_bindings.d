@@ -1,0 +1,1 @@
+gen/third_party/crabbyavif/crabbyavif_dav1d_bindings/dav1d_bindgen.rs: ../../third_party/crabbyavif/src/sys/dav1d-sys/wrapper.h

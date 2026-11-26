@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/entrypoints/ndb_app/ndb_app.js: ../../third_party/devtools-frontend/src/front_end/entrypoints/ndb_app/ndb_app.ts

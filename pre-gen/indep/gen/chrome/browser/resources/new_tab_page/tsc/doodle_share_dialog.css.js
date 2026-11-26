@@ -1,0 +1,61 @@
+import { css } from '//resources/lit/v3_0/lit.rollup.js';
+let instance = null;
+export function getCss() {
+    return instance || (instance = [...[], css `
+#dialog::part(dialog) {
+  max-width: 300px;
+}
+
+#buttons {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  margin-bottom: 28px;
+  margin-top: 20px;
+}
+
+#buttons cr-button {
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  border: none;
+  height: 48px;
+  min-width: 48px;
+  width: 48px;
+}
+
+#buttons cr-button:hover {
+  opacity: 0.8;
+}
+
+#buttons > :not(:last-child) {
+  margin-inline-end: 12px;
+}
+
+#facebookButton {
+  background-image: url(icons/facebook.svg);
+}
+
+#twitterButton {
+  background-image: url(icons/twitter.svg);
+}
+
+#emailButton {
+  background-image: url(icons/mail.svg);
+}
+
+#url {
+  --cr-input-error-display: none;
+}
+
+#copyButton {
+  --cr-icon-image: url(icons/copy_old.svg);
+  margin-inline-start: 2px;
+}
+
+:host-context([webui-rounded-icons]) {
+  #copyButton {
+    --cr-icon-image: url(icons/copy.svg);
+  }
+}`]);
+}

@@ -1,0 +1,16 @@
+out/Release/chromium usr/lib/ungoogled-chromium
+
+debian/presubj usr/share/bug/ungoogled-chromium
+
+debian/initial_bookmarks.html usr/share/ungoogled-chromium
+
+debian/ungoogled-chromium.xml usr/share/gnome-control-center/default-apps
+
+debian/ungoogled-chromium.desktop usr/share/applications
+
+debian/etc/README etc/ungoogled-chromium.d
+debian/etc/apikeys etc/ungoogled-chromium.d
+debian/etc/default-flags etc/ungoogled-chromium.d
+debian/etc/dev-shm etc/ungoogled-chromium.d
+debian/etc/extensions etc/ungoogled-chromium.d
+debian/etc/master_preferences etc/ungoogled-chromium

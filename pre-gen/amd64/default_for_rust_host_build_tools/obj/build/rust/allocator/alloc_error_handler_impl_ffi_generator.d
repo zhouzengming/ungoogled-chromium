@@ -1,0 +1,1 @@
+default_for_rust_host_build_tools/gen/build/rust/allocator/alloc_error_handler_impl_ffi_generator/bindings.rs: ../../build/rust/allocator/alloc_error_handler_impl.h

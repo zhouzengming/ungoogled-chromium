@@ -1,0 +1,152 @@
+// Copyright 2016 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import{i as isIOS,a as isAndroid}from"./shared.rollup.js";import{css,html,CrLitElement}from"chrome://resources/lit/v3_0/lit.rollup.js";function getSupportedScaleFactors(){const supportedScaleFactors=[];if(!isIOS){supportedScaleFactors.push(1)}if(!isIOS&&!isAndroid){supportedScaleFactors.push(2)}else{supportedScaleFactors.push(window.devicePixelRatio)}return supportedScaleFactors}function getUrlForCss(s){const s2=s.replace(/(\(|\)|\,|\s|\'|\"|\\)/g,"\\$1");return`url("${s2}")`}function getImageSet(path){const supportedScaleFactors=getSupportedScaleFactors();const replaceStartIndex=path.indexOf("SCALEFACTOR");if(replaceStartIndex<0){return getUrlForCss(path)}let s="";for(let i=0;i<supportedScaleFactors.length;++i){const scaleFactor=supportedScaleFactors[i];const pathWithScaleFactor=path.substr(0,replaceStartIndex)+scaleFactor+path.substr(replaceStartIndex+"scalefactor".length);s+=getUrlForCss(pathWithScaleFactor)+" "+scaleFactor+"x";if(i!==supportedScaleFactors.length-1){s+=", "}}return"image-set("+s+")"}function getBaseFaviconUrl(){const baseUrl=window.location.protocol==="chrome-extension:"?"/_favicon/":"chrome://favicon2/";const faviconUrl=new URL(baseUrl,window.location.origin);faviconUrl.searchParams.set("size","16");faviconUrl.searchParams.set("scaleFactor","SCALEFACTORx");return faviconUrl}function getDefaultFaviconUrlParams(){return{isSyncedUrlForHistoryUi:false,remoteIconUrlForUma:"",size:16,forceLightMode:false,fallbackToHost:true,forceEmptyDefaultFavicon:false,scaleFactor:""}}function getFaviconUrl(url,optionalParams){const params=Object.assign(getDefaultFaviconUrlParams(),optionalParams);const faviconUrl=getBaseFaviconUrl();faviconUrl.searchParams.set("pageUrl",url);faviconUrl.searchParams.set("size",params.size.toString());const fallback=params.isSyncedUrlForHistoryUi?"1":"0";faviconUrl.searchParams.set("allowGoogleServerFallback",fallback);if(params.isSyncedUrlForHistoryUi){faviconUrl.searchParams.set("iconUrl",params.remoteIconUrlForUma)}if(params.forceLightMode){faviconUrl.searchParams.set("forceLightMode","true")}if(!params.fallbackToHost){faviconUrl.searchParams.set("fallbackToHost","0")}if(params.forceEmptyDefaultFavicon){faviconUrl.searchParams.set("forceEmptyDefaultFavicon","1")}if(params.scaleFactor){faviconUrl.searchParams.set("scaleFactor",params.scaleFactor)}return faviconUrl.toString()}function getFaviconForPageURL(url,isSyncedUrlForHistoryUi,remoteIconUrlForUma="",size=16,forceLightMode=false,fallbackToHost=true,forceEmptyDefaultFavicon=false,scaleFactor=""){return getImageSet(getFaviconUrl(url,{isSyncedUrlForHistoryUi:isSyncedUrlForHistoryUi,remoteIconUrlForUma:remoteIconUrlForUma,size:size,forceLightMode:forceLightMode,fallbackToHost:fallbackToHost,forceEmptyDefaultFavicon:forceEmptyDefaultFavicon,scaleFactor:scaleFactor}))}let instance$1=null;function getCss$1(){return instance$1||(instance$1=[...[],css`
+:host {
+  align-items: center;
+  display: flex;
+  isolation: isolate;
+}
+
+.favicon-item {
+  /* Skeleton loader motion (see below). cros.ref.motion.duration.long2. */
+  --skeleton-fade-duration: 500ms;
+  /* cros.ref.motion.duration.short4 */
+  --skeleton-swap-duration: 200ms;
+  /* Stagger: each successive placeholder holds 100ms longer before looping.
+   * Delays are set per nth-child below, one per coin up to
+   * MAX_DISPLAY_COUNT in composebox_favicon_group.ts. */
+  --skeleton-stagger-delay: 0ms;
+  aspect-ratio: 1/1;
+  background-color: #fff;
+  border: 2px solid var(--composebox-favicon-border-color, #f2f2f2);
+  border-radius: 50%;
+  height: 16px;
+  position: relative;
+  width: 16px;
+}
+
+.favicon-item:nth-child(1) {
+  z-index: 3;
+}
+
+.favicon-item:nth-child(2) {
+  --skeleton-stagger-delay: 100ms;
+  z-index: 2;
+}
+
+.favicon-item:nth-child(3) {
+  --skeleton-stagger-delay: 200ms;
+  z-index: 1;
+}
+
+.favicon-item:not(:first-child) {
+  margin-inline-start: -7px;
+}
+
+/* Skeleton loader for favicon coins, per the Chrome OS motion foundational
+ * skeleton-loader spec (b/553094862):
+ * go/carbon cr-os-motion-work/pages/wip-skeleton-loaders/foundational-spec */
+
+/* Actual content: the favicon. Fades 0% -> 100% when the placeholder is
+ * swapped out. */
+.favicon-item::after {
+  background-image: var(--favicon-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 16px;
+  border-radius: 50%;
+  content: '';
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity var(--skeleton-swap-duration) linear;
+}
+
+.favicon-item.loading::after {
+  opacity: 0;
+  transition: none;
+}
+
+/* Placeholder: surface-variant coin. Fades current -> 0% when swapped out.
+ * Like the coin background and border above, the default is intentionally not
+ * tied to the color scheme because the realbox is always a light surface.
+ * Themed hosts (omnibox, Lens searchbox, context menu) override
+ * --composebox-favicon-skeleton-color with a theme-aware token. */
+.favicon-item::before {
+  background-color: var(--composebox-favicon-skeleton-color, #e1e3e1);
+  border-radius: 50%;
+  content: '';
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity var(--skeleton-swap-duration) linear;
+}
+
+.favicon-item.loading::before {
+  animation: skeleton-looping-opacity calc(2 * var(--skeleton-fade-duration))
+      var(--skeleton-stagger-delay) infinite;
+  opacity: 1;
+  transition: none;
+}
+
+/* Looping opacity: fade down (starting value -> 1/2, emphasized accelerate,
+ * no delay), then fade up (1/2 -> starting value, linear, delayed by long2 so
+ * it starts once fade down ends), then loop. */
+@keyframes skeleton-looping-opacity {
+  0% {
+    /* cros.ref.motion.easing.emphasized.accelerate */
+    animation-timing-function: cubic-bezier(0.3, 0, 0.8, 0.15);
+    opacity: 1;
+  }
+  50% {
+    /* cros.ref.motion.easing.linear */
+    animation-timing-function: linear;
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .favicon-item.loading::before {
+    animation: none;
+  }
+}
+
+#more-items {
+  align-items: center;
+  color: var(--color-sys-on-surface-subtle, var(--cr-fallback-color-on-surface-subtle));
+  display: flex;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  margin-inline-start: 4px;
+}
+
+@media (forced-colors: active) {
+  .favicon-item {
+    border: 2px solid ButtonText;
+  }
+
+  #more-items {
+    color: ButtonText;
+  }
+}`])}function getHtml$1(){return html`
+    ${this.visibleTabs_.map((tab=>html`
+      <div class="favicon-item ${this.isTabLoading_(tab)?"loading":""}"
+          style="--favicon-image: ${this.getFaviconUrl_(tab)}"></div>
+    `))}
+    ${this.remainingCount_>0?html`
+      <div id="more-items">
+        +${this.remainingCount_}
+      </div>`:""}`}const MAX_DISPLAY_COUNT=3;class ComposeboxFaviconGroupElement extends CrLitElement{static get is(){return"composebox-favicon-group"}static get styles(){return getCss$1()}render(){return getHtml$1.bind(this)()}static get properties(){return{tabs:{type:Array},visibleTabs_:{type:Array},remainingCount_:{type:Number},submittedTabIds:{type:Object}}}#tabs_accessor_storage=[];get tabs(){return this.#tabs_accessor_storage}set tabs(value){this.#tabs_accessor_storage=value}#submittedTabIds_accessor_storage=new Set;get submittedTabIds(){return this.#submittedTabIds_accessor_storage}set submittedTabIds(value){this.#submittedTabIds_accessor_storage=value}#visibleTabs__accessor_storage=[];get visibleTabs_(){return this.#visibleTabs__accessor_storage}set visibleTabs_(value){this.#visibleTabs__accessor_storage=value}#remainingCount__accessor_storage=0;get remainingCount_(){return this.#remainingCount__accessor_storage}set remainingCount_(value){this.#remainingCount__accessor_storage=value}loadedFavicons_=new Map;willUpdate(changedProperties){super.willUpdate(changedProperties);if(changedProperties.has("tabs")){this.onTabsChanged_()}}onTabsChanged_(){this.visibleTabs_=this.tabs.slice(0,MAX_DISPLAY_COUNT);this.remainingCount_=Math.max(0,this.tabs.length-MAX_DISPLAY_COUNT);for(const tab of this.visibleTabs_){if(tab.tabId&&!this.submittedTabIds.has(tab.tabId)){this.fire("wait-for-tab-load",{tabId:tab.tabId,onTabLoaded:faviconDataUrl=>{if(faviconDataUrl){const newMap=new Map(this.loadedFavicons_);newMap.set(tab.tabId,getUrlForCss(faviconDataUrl));this.loadedFavicons_=newMap;this.requestUpdate()}}})}}}isTabLoading_(tab){return tab.isLoading&&!this.submittedTabIds.has(tab.tabId)}getFaviconUrl_(tab){if(typeof tab==="object"&&tab!==null){const tabObj=tab;const urlStr=typeof tabObj.url==="string"?tabObj.url:tabObj.url.url;const isSubmitted=tabObj.tabId&&this.submittedTabIds.has(tabObj.tabId);return tabObj.tabId&&!isSubmitted&&this.loadedFavicons_.get(tabObj.tabId)||getFaviconForPageURL(urlStr,false)}return getFaviconForPageURL(tab,false)}}customElements.define(ComposeboxFaviconGroupElement.is,ComposeboxFaviconGroupElement);let instance=null;function getCss(){return instance||(instance=[...[],css`:host{align-items:center;display:inline-flex;justify-content:flex-start;margin:0;padding:0;width:fit-content}#faviconGroup{--composebox-favicon-border-color:var(--color-favicons-border,#f2f2f2)}@media (prefers-color-scheme:dark){#faviconGroup{--composebox-favicon-border-color:var(--color-favicons-border,#1f1f1f)}}`])}function getHtml(){return html`<!--_html_template_start_-->
+    <composebox-favicon-group id="faviconGroup"
+        .tabs="${this.tabs}"
+        .submittedTabIds="${this.submittedTabIds}"
+        @wait-for-tab-load="${this.onWaitForTabLoad_}">
+    </composebox-favicon-group>
+  <!--_html_template_end_-->`}class ContextLibraryElement extends CrLitElement{static get is(){return"context-library"}static get styles(){return getCss()}render(){return getHtml.bind(this)()}static get properties(){return{tabs:{type:Array},submittedTabIds:{type:Object}}}#tabs_accessor_storage=[];get tabs(){return this.#tabs_accessor_storage}set tabs(value){this.#tabs_accessor_storage=value}#submittedTabIds_accessor_storage=new Set;get submittedTabIds(){return this.#submittedTabIds_accessor_storage}set submittedTabIds(value){this.#submittedTabIds_accessor_storage=value}resizeObserver_=null;messageListener_=null;connectedCallback(){super.connectedCallback();this.resizeObserver_=new ResizeObserver((()=>{window.requestResize?.()}));this.resizeObserver_.observe(this);this.messageListener_=event=>{if(event.data?.type==="SET_TABS"&&Array.isArray(event.data.tabs)){this.tabs=event.data.tabs}};window.addEventListener("message",this.messageListener_)}disconnectedCallback(){super.disconnectedCallback();this.resizeObserver_?.disconnect();this.resizeObserver_=null;if(this.messageListener_){window.removeEventListener("message",this.messageListener_);this.messageListener_=null}}onWaitForTabLoad_(_e){}}customElements.define(ContextLibraryElement.is,ContextLibraryElement);export{ContextLibraryElement};

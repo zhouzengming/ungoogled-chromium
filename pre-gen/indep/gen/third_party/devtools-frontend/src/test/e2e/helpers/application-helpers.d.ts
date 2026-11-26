@@ -1,0 +1,28 @@
+import type { DevToolsPage } from '../shared/DevToolsPage.js';
+import type { InspectedPage } from '../shared/InspectedPage.js';
+export declare function navigateToApplicationTab(devToolsPage: DevToolsPage, inspectedPage: InspectedPage, testName: string): Promise<void>;
+export declare function navigateToServiceWorkers(devToolsPage: DevToolsPage): Promise<void>;
+export declare function navigateToFrame(devToolsPage: DevToolsPage, name: string): Promise<void>;
+export declare function navigateToStorage(devToolsPage: DevToolsPage): Promise<void>;
+export declare function navigateToOpenedWindows(devToolsPage: DevToolsPage): Promise<void>;
+export declare function navigateToWebWorkers(devToolsPage: DevToolsPage): Promise<void>;
+export declare function navigateToFrameServiceWorkers(devToolsPage: DevToolsPage, frameName: string): Promise<void>;
+export declare function navigateToCookiesForTopDomain(devToolsPage: DevToolsPage, inspectedPage: InspectedPage): Promise<void>;
+export declare function navigateToSessionStorageForTopDomain(devToolsPage: DevToolsPage, inspectedPage: InspectedPage): Promise<void>;
+export declare function getDataGridData(devToolsPage: DevToolsPage, selector: string, columns: string[]): Promise<Array<Record<string, string | null>>>;
+export declare function getTrimmedTextContent(devToolsPage: DevToolsPage, selector: string): Promise<string[]>;
+export declare function getFrameTreeTitles(devToolsPage: DevToolsPage): Promise<string[]>;
+export declare function getStorageItemsData(devToolsPage: DevToolsPage, columns: string[], leastExpected?: number, matchExactNumberOfRows?: boolean): Promise<Array<Record<string, string | null>>>;
+export declare function filterStorageItems(devToolsPage: DevToolsPage, filter: string): Promise<void>;
+export declare function clearStorageItemsFilter(devToolsPage: DevToolsPage): Promise<void>;
+export declare function clearStorageItems(devToolsPage: DevToolsPage): Promise<void>;
+export declare function selectStorageItemAtIndex(devToolsPage: DevToolsPage, index: number): Promise<void>;
+export declare function deleteSelectedStorageItem(devToolsPage: DevToolsPage): Promise<void>;
+export declare function selectCookieByName(devToolsPage: DevToolsPage, name: string): Promise<void>;
+export declare function waitForQuotaUsage(devToolsPage: DevToolsPage, p: (quota: number) => boolean): Promise<void>;
+export declare function getQuotaUsage(devToolsPage: DevToolsPage): Promise<number>;
+export declare function getPieChartLegendRows(devToolsPage: DevToolsPage): Promise<string[][]>;
+export declare function unregisterServiceWorker(devToolsPage: DevToolsPage): Promise<void>;
+export declare function veImpressionForApplicationPanel(): {
+    impressions: string[];
+};

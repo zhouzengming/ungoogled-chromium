@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/console_counters/console_counters-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/console_counters/console_counters-meta.ts

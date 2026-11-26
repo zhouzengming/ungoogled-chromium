@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/media/media-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/media/media-meta.ts

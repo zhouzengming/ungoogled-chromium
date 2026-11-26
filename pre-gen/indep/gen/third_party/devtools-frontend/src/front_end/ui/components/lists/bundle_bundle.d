@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/components/lists/lists.js: gen/third_party/devtools-frontend/src/front_end/ui/components/lists/list.css.js ../../third_party/devtools-frontend/src/front_end/ui/components/lists/List.ts ../../third_party/devtools-frontend/src/front_end/ui/components/lists/lists.ts

@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/components/spinners/spinners.js: gen/third_party/devtools-frontend/src/front_end/ui/components/spinners/spinner.css.js ../../third_party/devtools-frontend/src/front_end/ui/components/spinners/Spinner.ts ../../third_party/devtools-frontend/src/front_end/ui/components/spinners/spinners.ts

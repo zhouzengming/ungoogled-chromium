@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/elements/elements.js: ../../third_party/devtools-frontend/src/front_end/models/elements/DOMChanges.ts ../../third_party/devtools-frontend/src/front_end/models/elements/ElementUpdateRecord.ts ../../third_party/devtools-frontend/src/front_end/models/elements/elements.ts

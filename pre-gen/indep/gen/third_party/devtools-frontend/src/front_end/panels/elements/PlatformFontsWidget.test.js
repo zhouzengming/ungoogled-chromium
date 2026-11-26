@@ -1,0 +1,46 @@
+// Copyright 2023 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+import sinon from 'sinon';
+import { describeWithEnvironment } from '../../testing/EnvironmentHelpers.js';
+import * as Elements from './elements.js';
+describeWithEnvironment('PlatformFontsWidget', () => {
+    it('correctly displays font stats', async () => {
+        const sharedModel = {};
+        sharedModel.addEventListener = sinon.stub();
+        const cssModel = {};
+        cssModel.getPlatformFonts = async () => ([
+            {
+                familyName: 'Arial',
+                postScriptName: 'ArialMT',
+                isCustomFont: false,
+                glyphCount: 5,
+            },
+            {
+                familyName: 'Merriweather Black',
+                postScriptName: 'Merriweather-Black',
+                isCustomFont: false,
+                glyphCount: 18,
+            },
+        ]);
+        const node = {
+            id: 1,
+        };
+        sharedModel.cssModel = () => cssModel;
+        sharedModel.node = node;
+        const platformFontsWidget = new Elements.PlatformFontsWidget.PlatformFontsWidget();
+        platformFontsWidget.sharedModel = sharedModel;
+        await platformFontsWidget.updateComplete;
+        const fontStatsItems = platformFontsWidget.contentElement.querySelectorAll('.font-stats-item');
+        const firstFontContent = fontStatsItems[0].textContent;
+        const secondFontContent = fontStatsItems[1].textContent;
+        assert.include(firstFontContent, 'Family name: Merriweather Black');
+        assert.include(firstFontContent, 'PostScript name: Merriweather-Black');
+        assert.include(firstFontContent, 'Font origin: Local file(18 glyphs)');
+        assert.include(secondFontContent, 'Family name: Arial');
+        assert.include(secondFontContent, 'PostScript name: ArialMT');
+        assert.include(secondFontContent, 'Font origin: Local file(5 glyphs)');
+    });
+});
+//# sourceMappingURL=PlatformFontsWidget.test.js.map

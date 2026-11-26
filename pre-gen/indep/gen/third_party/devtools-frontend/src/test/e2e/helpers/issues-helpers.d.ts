@@ -1,0 +1,53 @@
+import type * as puppeteer from 'puppeteer-core';
+import type { DevToolsPage } from '../shared/DevToolsPage.js';
+export declare const CATEGORY = ".issue-category:not(.hidden-issues)";
+export declare const KIND = ".issue-kind";
+export declare const CATEGORY_NAME = ".issue-category .title";
+export declare const CATEGORY_CHECKBOX = "[title^=\"Group displayed issues under\"]";
+export declare const KIND_CHECKBOX = "[title^=\"Group displayed issues as\"]";
+export declare const ISSUE = ".issue:not(.hidden-issue)";
+export declare const ISSUE_TITLE = ".issue .title";
+export declare const AFFECTED_ELEMENT_ICON = ".affected-resource-csp-info-node";
+export declare const ELEMENT_REVEAL_ICON = ".element-reveal-icon";
+export declare const ELEMENTS_PANEL_SELECTOR = ".panel[aria-label=\"elements\"]";
+export declare const SOURCES_LINK = ".affected-source-location > button";
+export declare const BLOCKED_STATUS = ".affected-resource-blocked-status";
+export declare const REPORT_ONLY_STATUS = ".affected-resource-report-only-status";
+export declare const RESOURCES_LABEL = ".affected-resource-label";
+export declare const HIDE_ISSUES_MENU = "devtools-hide-issues-menu";
+export declare const HIDE_THIS_ISSUE = "Hide issues like this";
+export declare const UNHIDE_THIS_ISSUE = "Unhide issues like this";
+export declare const UNHIDE_ALL_ISSUES = ".unhide-all-issues-button";
+export declare function getHideIssuesMenu(devToolsPage: DevToolsPage, root?: puppeteer.ElementHandle): Promise<puppeteer.ElementHandle<Element>>;
+export declare function navigateToIssuesTab(devToolsPage: DevToolsPage): Promise<void>;
+export declare function getUnhideAllIssuesBtn(devToolsPage: DevToolsPage): Promise<puppeteer.ElementHandle<Element>>;
+export declare function getHideIssuesMenuItem(devToolsPage: DevToolsPage): Promise<puppeteer.ElementHandle<HTMLElement> | null>;
+export declare function getUnhideIssuesMenuItem(devToolsPage: DevToolsPage): Promise<puppeteer.ElementHandle<HTMLElement> | null>;
+export declare function getHiddenIssuesRow(devToolsPage: DevToolsPage): Promise<puppeteer.ElementHandle<HTMLElement> | null>;
+export declare function getHiddenIssuesRowBody(devToolsPage: DevToolsPage): Promise<puppeteer.ElementHandle<HTMLElement> | null>;
+export declare function assertCategoryName(devToolsPage: DevToolsPage, categoryName: string): Promise<void>;
+export declare function assertIssueTitle(devToolsPage: DevToolsPage, issueMessage: string): Promise<void>;
+/** Only works if there is just a single issue. **/
+export declare function getIssueByTitle(devToolsPage: DevToolsPage, issueMessage: string): Promise<puppeteer.ElementHandle<HTMLElement> | undefined>;
+/** Works also if there are multiple issues. **/
+export declare function getAndExpandSpecificIssueByTitle(devToolsPage: DevToolsPage, issueMessage: string): Promise<puppeteer.ElementHandle<HTMLElement> | undefined>;
+export declare function getIssueHeaderByTitle(devToolsPage: DevToolsPage, issueMessage: string): Promise<puppeteer.ElementHandle<HTMLElement> | undefined>;
+export declare function assertStatus(devToolsPage: DevToolsPage, status: 'Blocked' | 'Report-only'): Promise<void>;
+export declare function expandCategory(devToolsPage: DevToolsPage): Promise<void>;
+export declare function expandKind(devToolsPage: DevToolsPage, classSelector: string): Promise<void>;
+export declare function expandIssue(devToolsPage: DevToolsPage): Promise<void>;
+interface IssueResourceSection {
+    label: puppeteer.ElementHandle<Element>;
+    content: puppeteer.ElementHandle<Element>;
+}
+export declare function getResourcesElement(devToolsPage: DevToolsPage, resourceName: string, issueElement?: puppeteer.ElementHandle<Element>, className?: string): Promise<IssueResourceSection>;
+export declare function ensureResourceSectionIsExpanded(devToolsPage: DevToolsPage, section: IssueResourceSection): Promise<void>;
+export declare function waitForTableFromResourceSection(devToolsPage: DevToolsPage, resourceContentElement: puppeteer.ElementHandle<Element>, predicate: (table: string[][]) => true | undefined): Promise<string[][]>;
+export declare function waitForTableFromResourceSectionContents(devToolsPage: DevToolsPage, resourceContentElement: puppeteer.ElementHandle<Element>, expected: Array<Array<string | RegExp>>): Promise<string[][]>;
+export declare function getGroupByCategoryChecked(devToolsPage: DevToolsPage): Promise<boolean>;
+export declare function getGroupByKindChecked(devToolsPage: DevToolsPage): Promise<boolean>;
+export declare function revealNodeInElementsPanel(devToolsPage: DevToolsPage): Promise<void>;
+export declare function revealViolatingSourcesLines(devToolsPage: DevToolsPage): Promise<void>;
+export declare function toggleGroupByCategory(devToolsPage: DevToolsPage): Promise<void>;
+export declare function toggleGroupByKind(devToolsPage: DevToolsPage): Promise<void>;
+export {};

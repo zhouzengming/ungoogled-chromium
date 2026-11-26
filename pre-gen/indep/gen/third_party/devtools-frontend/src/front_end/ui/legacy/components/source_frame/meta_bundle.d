@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/legacy/components/source_frame/source_frame-meta.js: ../../third_party/devtools-frontend/src/front_end/ui/legacy/components/source_frame/source_frame-meta.ts

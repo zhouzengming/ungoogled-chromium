@@ -1,0 +1,33 @@
+This tarball/subdirectory contains Chromium source files that, under normal
+circumstances, are generated in the course of a (binary) build. Because the
+generation process typically requires recent versions of build-dep packages
+like bindgen and nodejs, it is prone to failure on Debian stable releases,
+where those versions may not be available.
+
+To avoid failed builds due to this, Debian has prepared these files in
+advance, so that they can simply be copied into the build tree when needed
+rather than the build trying (and failing) to generate them.
+
+Some of the files are specific to an architecture (amd64/**, ppc64el/**
+et al.); most are architecture-independent (indep/**). If you have a
+fully-built Chromium tree that did not make use of these files, then you
+can compare the pre-generated vs. normally-generated sets with e.g.
+
+  $ diff -ru pre-gen/amd64 out/Release
+  $ diff -ru pre-gen/indep out/Release
+
+The BUILDINFO file, in deb-buildinfo(5) format, contains details of the
+environment in which these files were generated.
+
+To review the implementation of the pre-generated source mechanism, please
+see the following files (not in this tarball/subdirectory):
+
+  debian/deb_pre_gen.py
+  debian/patches/debianization/pre-gen.patch
+  debian/scripts/init-pre-gen.sh
+
+If you do not wish to make use of pre-generated files in your Chromium
+build, then simply delete the pre-gen/ subdirectory from the source tree.
+(For completeness, you might also want to drop pre-gen.patch from the patch
+series.) As long as you have recent-enough build dependencies installed,
+the build will not be any worse off.

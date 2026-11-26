@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/lighthouse/report/report.js: ../../third_party/devtools-frontend/src/front_end/third_party/lighthouse/report/bundle.js ../../third_party/devtools-frontend/src/front_end/third_party/lighthouse/report/report.ts

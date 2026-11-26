@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/mobile_throttling/mobile_throttling-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/mobile_throttling/mobile_throttling-meta.ts

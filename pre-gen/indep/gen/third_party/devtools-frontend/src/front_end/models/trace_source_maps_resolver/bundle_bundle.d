@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/trace_source_maps_resolver/trace_source_maps_resolver.js: ../../third_party/devtools-frontend/src/front_end/models/trace_source_maps_resolver/SourceMapsResolver.ts ../../third_party/devtools-frontend/src/front_end/models/trace_source_maps_resolver/trace_source_maps_resolver.ts

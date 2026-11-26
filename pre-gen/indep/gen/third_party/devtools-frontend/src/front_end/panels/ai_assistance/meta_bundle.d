@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/ai_assistance/ai_assistance-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/ai_assistance/ai_assistance-meta.ts

@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/entrypoints/lighthouse_worker/lighthouse_worker.js: ../../third_party/devtools-frontend/src/front_end/entrypoints/lighthouse_worker/LighthouseWorkerService.ts ../../third_party/devtools-frontend/src/front_end/entrypoints/lighthouse_worker/lighthouse_worker.ts

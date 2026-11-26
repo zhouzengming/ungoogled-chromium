@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/change_tracker/change_tracker.js: ../../third_party/devtools-frontend/src/front_end/models/change_tracker/ChangeTracker.ts ../../third_party/devtools-frontend/src/front_end/models/change_tracker/change_tracker.ts

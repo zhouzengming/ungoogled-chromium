@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/dom_extension/dom_extension.js: ../../third_party/devtools-frontend/src/front_end/ui/dom_extension/DOMExtension.ts ../../third_party/devtools-frontend/src/front_end/ui/dom_extension/dom_extension.ts

@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/css_overview/css_overview-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/css_overview/css_overview-meta.ts

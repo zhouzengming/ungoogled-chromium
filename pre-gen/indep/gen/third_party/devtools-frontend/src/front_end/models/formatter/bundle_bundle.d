@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/formatter/formatter.js: ../../third_party/devtools-frontend/src/front_end/models/formatter/FormatterWorkerPool.ts ../../third_party/devtools-frontend/src/front_end/models/formatter/ScriptFormatter.ts ../../third_party/devtools-frontend/src/front_end/models/formatter/formatter.ts

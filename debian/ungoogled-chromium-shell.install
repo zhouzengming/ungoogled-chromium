@@ -1,0 +1,6 @@
+debian/scripts/ungoogled-chromium-shell usr/bin
+
+out/Release/chromium-shell usr/lib/ungoogled-chromium
+
+out/Release/content_shell.pak usr/lib/ungoogled-chromium
+out/Release/shell_resources.pak usr/lib/ungoogled-chromium

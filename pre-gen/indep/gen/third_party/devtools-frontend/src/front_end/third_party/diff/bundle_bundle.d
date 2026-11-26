@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/diff/diff.js: ../../third_party/devtools-frontend/src/front_end/third_party/diff/diff_match_patch.js ../../third_party/devtools-frontend/src/front_end/third_party/diff/DiffWrapper.ts ../../third_party/devtools-frontend/src/front_end/third_party/diff/diff.ts

@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/legacy/components/perf_ui/perf_ui-meta.js: ../../third_party/devtools-frontend/src/front_end/ui/legacy/components/perf_ui/perf_ui-meta.ts

@@ -1,0 +1,30 @@
+{
+  "extends": "../../../../../../ui/accessibility/extensions/tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "ts_build_staging",
+    "outDir": "tsc",
+    "composite": true,
+    "declaration": true,
+    "tsBuildInfoFile": "tsconfig_highcontrast_ts_lib.tsbuildinfo",
+    "skipLibCheck": true,
+    "paths": {
+      "/tools/typescript/definitions/*": [
+        "./../../../../../../tools/typescript/definitions/*"
+      ]
+    }
+  },
+  "files": [
+    "ts_build_staging/highcontrast/common.ts",
+    "ts_build_staging/highcontrast/highcontrast.ts",
+    "ts_build_staging/highcontrast/popup.ts",
+    "ts_build_staging/highcontrast/service_worker.ts",
+    "../../../../../../tools/typescript/definitions/action.d.ts",
+    "../../../../../../tools/typescript/definitions/chrome_event.d.ts",
+    "../../../../../../tools/typescript/definitions/i18n.d.ts",
+    "../../../../../../tools/typescript/definitions/runtime.d.ts",
+    "../../../../../../tools/typescript/definitions/scripting.d.ts",
+    "../../../../../../tools/typescript/definitions/storage.d.ts",
+    "../../../../../../tools/typescript/definitions/tabs.d.ts",
+    "../../../../../../tools/typescript/definitions/windows.d.ts"
+  ]
+}

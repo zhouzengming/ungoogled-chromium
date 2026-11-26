@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/coverage/coverage-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/coverage/coverage-meta.ts

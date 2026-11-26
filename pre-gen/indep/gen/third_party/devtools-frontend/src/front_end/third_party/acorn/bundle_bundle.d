@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/acorn/acorn.js: ../../third_party/devtools-frontend/src/front_end/third_party/acorn/package/dist/acorn.mjs ../../third_party/devtools-frontend/src/front_end/third_party/acorn/acorn.ts

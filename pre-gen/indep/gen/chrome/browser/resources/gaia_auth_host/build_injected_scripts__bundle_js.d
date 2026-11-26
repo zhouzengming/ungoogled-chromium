@@ -1,0 +1,1 @@
+gen/chrome/browser/resources/gaia_auth_host/build_injected_scripts_bundled/saml_injected.rollup.js: gen/chrome/browser/resources/gaia_auth_host/stage/channel.js gen/chrome/browser/resources/gaia_auth_host/stage/post_message_channel.js gen/chrome/browser/resources/gaia_auth_host/stage/scroll_helper_injected.js gen/chrome/browser/resources/gaia_auth_host/stage/saml_injected.js

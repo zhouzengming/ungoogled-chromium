@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/legacy/components/quick_open/quick_open-meta.js: ../../third_party/devtools-frontend/src/front_end/ui/legacy/components/quick_open/quick_open-meta.ts

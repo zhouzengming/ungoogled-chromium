@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/entrypoints/worker_app/worker_app.js: ../../third_party/devtools-frontend/src/front_end/entrypoints/worker_app/WorkerMain.ts ../../third_party/devtools-frontend/src/front_end/entrypoints/worker_app/worker_app.ts

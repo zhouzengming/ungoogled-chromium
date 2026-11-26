@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/components/switch/switch.js: gen/third_party/devtools-frontend/src/front_end/ui/components/switch/switch.css.js ../../third_party/devtools-frontend/src/front_end/ui/components/switch/SwitchImpl.ts ../../third_party/devtools-frontend/src/front_end/ui/components/switch/switch.ts

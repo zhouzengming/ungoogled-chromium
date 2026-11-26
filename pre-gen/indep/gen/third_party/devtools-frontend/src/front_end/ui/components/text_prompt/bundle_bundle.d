@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/components/text_prompt/text_prompt.js: gen/third_party/devtools-frontend/src/front_end/ui/components/text_prompt/textPrompt.css.js ../../third_party/devtools-frontend/src/front_end/ui/components/text_prompt/TextPrompt.ts ../../third_party/devtools-frontend/src/front_end/ui/components/text_prompt/text_prompt.ts

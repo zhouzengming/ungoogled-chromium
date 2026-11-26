@@ -1,0 +1,1 @@
+gen/base/logging/log_severity_bindgen_generator/bindings.rs: ../../base/dcheck_is_on.h ../../base/logging/log_severity.h ../../build/buildflag.h gen/base/debug/debugging_buildflags.h

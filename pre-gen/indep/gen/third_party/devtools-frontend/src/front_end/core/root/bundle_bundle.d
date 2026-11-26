@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/core/root/root.js: ../../third_party/devtools-frontend/src/front_end/core/root/DevToolsContext.ts ../../third_party/devtools-frontend/src/front_end/core/root/ExperimentNames.ts ../../third_party/devtools-frontend/src/front_end/core/root/Runtime.ts ../../third_party/devtools-frontend/src/front_end/core/root/root.ts

@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/legacy/theme_support/theme_support.js: ../../third_party/devtools-frontend/src/front_end/ui/legacy/theme_support/ThemeSupport.ts ../../third_party/devtools-frontend/src/front_end/ui/legacy/theme_support/theme_support.ts

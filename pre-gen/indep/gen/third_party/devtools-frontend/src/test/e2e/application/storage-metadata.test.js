@@ -1,0 +1,30 @@
+// Copyright 2026 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { navigateToApplicationTab, } from '../helpers/application-helpers.js';
+export async function navigateToBucketViaDbMetadata(devToolsPage, inspectedPage, subPanel, dbSelector) {
+    await navigateToApplicationTab(devToolsPage, inspectedPage, 'storage-buckets-link');
+    await devToolsPage.bringToFront();
+    await devToolsPage.reload();
+    await devToolsPage.doubleClick(`[aria-label="${subPanel}"]`);
+    const db = await devToolsPage.waitForAria(dbSelector);
+    await db.click();
+    await devToolsPage.waitFor('devtools-report');
+    const bucketNameLinkSelector = 'devtools-report-value devtools-link';
+    await devToolsPage.waitForVisible(bucketNameLinkSelector);
+    await devToolsPage.click(bucketNameLinkSelector);
+    await devToolsPage.waitFor('devtools-button[aria-label="Delete bucket"]');
+}
+describe('The Application Tab', () => {
+    setup({
+        dockingMode: 'undocked',
+        enabledFeatures: ['StorageBuckets'],
+    });
+    it('reveals storage bucket when clicking its name in IndexedDB metadata', async ({ devToolsPage, inspectedPage }) => {
+        await navigateToBucketViaDbMetadata(devToolsPage, inspectedPage, 'IndexedDB', 'test-db');
+    });
+    it('reveals storage bucket when clicking its name in Cache Storage metadata', async ({ devToolsPage, inspectedPage }) => {
+        await navigateToBucketViaDbMetadata(devToolsPage, inspectedPage, 'Cache storage', `test-cache - ${inspectedPage.domain()}/`);
+    });
+});
+//# sourceMappingURL=storage-metadata.test.js.map

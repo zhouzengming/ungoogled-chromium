@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/trace/lantern/lantern.js: ../../third_party/devtools-frontend/src/front_end/models/trace/lantern/lantern.ts

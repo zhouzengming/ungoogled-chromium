@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/console_counters/console_counters.js: ../../third_party/devtools-frontend/src/front_end/panels/console_counters/WarningErrorCounter.ts ../../third_party/devtools-frontend/src/front_end/panels/console_counters/console_counters.ts

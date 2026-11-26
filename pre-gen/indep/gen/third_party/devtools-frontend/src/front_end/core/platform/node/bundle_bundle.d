@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/core/platform/node/node.js: ../../third_party/devtools-frontend/src/front_end/core/platform/node/HostRuntime.ts ../../third_party/devtools-frontend/src/front_end/core/platform/node/node.ts

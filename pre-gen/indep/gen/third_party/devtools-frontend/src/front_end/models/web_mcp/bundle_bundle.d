@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/web_mcp/web_mcp.js: ../../third_party/devtools-frontend/src/front_end/models/web_mcp/WebMCPModel.ts ../../third_party/devtools-frontend/src/front_end/models/web_mcp/web_mcp.ts

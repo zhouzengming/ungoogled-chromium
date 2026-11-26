@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/ai_code_completion/ai_code_completion.js: ../../third_party/devtools-frontend/src/front_end/models/ai_code_completion/debug.ts ../../third_party/devtools-frontend/src/front_end/models/ai_code_completion/AiCodeCompletion.ts ../../third_party/devtools-frontend/src/front_end/models/ai_code_completion/ai_code_completion.ts

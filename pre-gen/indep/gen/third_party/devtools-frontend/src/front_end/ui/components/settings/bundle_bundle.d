@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/components/settings/settings.js: gen/third_party/devtools-frontend/src/front_end/ui/components/settings/settingCheckbox.css.js ../../third_party/devtools-frontend/src/front_end/ui/components/settings/SettingCheckbox.ts ../../third_party/devtools-frontend/src/front_end/ui/components/settings/settings.ts

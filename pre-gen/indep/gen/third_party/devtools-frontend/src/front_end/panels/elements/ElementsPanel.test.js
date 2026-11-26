@@ -1,0 +1,512 @@
+// Copyright 2022 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+import sinon from 'sinon';
+import * as Common from '../../core/common/common.js';
+import * as SDK from '../../core/sdk/sdk.js';
+import * as Bindings from '../../models/bindings/bindings.js';
+import * as ComputedStyle from '../../models/computed_style/computed_style.js';
+import { raf, renderElementIntoDOM, setTestUniverseForWidgets } from '../../testing/DOMHelpers.js';
+import { createTarget, describeWithEnvironment, stubNoopSettings, updateHostConfig, } from '../../testing/EnvironmentHelpers.js';
+import { expectCall, expectCalled } from '../../testing/ExpectStubCall.js';
+import { MockCDPConnection } from '../../testing/MockCDPConnection.js';
+import { dispatchEvent } from '../../testing/MockConnection.js';
+import { TestUniverse } from '../../testing/TestUniverse.js';
+import * as UI from '../../ui/legacy/legacy.js';
+import * as Elements from './elements.js';
+describeWithEnvironment('ElementsPanel', () => {
+    let target;
+    let connection;
+    let universe;
+    beforeEach(() => {
+        universe = new TestUniverse();
+        setTestUniverseForWidgets(universe);
+        sinon.stub(Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding, 'instance')
+            .returns(universe.debuggerWorkspaceBinding);
+        sinon.stub(Bindings.CSSWorkspaceBinding.CSSWorkspaceBinding, 'instance').returns(universe.cssWorkspaceBinding);
+        stubNoopSettings();
+        connection = new MockCDPConnection();
+        target = createTarget({ connection });
+        connection.setSuccessHandler('DOM.requestChildNodes', () => ({}));
+        connection.setSuccessHandler('DOM.getDocument', () => ({
+            root: {
+                nodeId: 1,
+                backendNodeId: 2,
+                nodeType: Node.DOCUMENT_NODE,
+                nodeName: '#document',
+                childNodeCount: 1,
+                children: [{
+                        nodeId: 4,
+                        parentId: 1,
+                        backendNodeId: 5,
+                        nodeType: Node.ELEMENT_NODE,
+                        nodeName: 'HTML',
+                        childNodeCount: 1,
+                        children: [{
+                                nodeId: 6,
+                                parentId: 4,
+                                backendNodeId: 7,
+                                nodeType: Node.ELEMENT_NODE,
+                                nodeName: 'BODY',
+                                childNodeCount: 1,
+                            }],
+                    }],
+            },
+        }));
+        connection.setSuccessHandler('DOM.copyTo', () => {
+            dispatchEvent(target, 'DOM.childNodeInserted', {
+                parentNodeId: 4,
+                previousNodeId: 6,
+                node: {
+                    nodeId: 7,
+                    parentId: 4,
+                    backendNodeId: 8,
+                    nodeType: Node.ELEMENT_NODE,
+                    nodeName: 'BODY',
+                    childNodeCount: 1,
+                },
+            });
+            return { nodeId: 7 };
+        });
+    });
+    afterEach(() => {
+        UI.Context.Context.instance().setFlavor(SDK.DOMModel.DOMNode, null);
+    });
+    // Causes unit test execution to abort
+    it('expands the tree even when target added later', async () => {
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(null);
+        const model = target.model(SDK.DOMModel.DOMModel);
+        assert.exists(model);
+        await model.requestDocument();
+        const panel = Elements.ElementsPanel.ElementsPanel.instance({ forceNew: true });
+        renderElementIntoDOM(panel);
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(target);
+        const domTree = panel.getDOMTreeWidgetForTesting();
+        assert.exists(domTree);
+        const selectedNode = domTree.selectedDOMNode();
+        assert.exists(selectedNode);
+        assert.isTrue(domTree.isNodeExpanded(selectedNode));
+        panel.detach();
+    });
+    // Causes unit test execution to abort
+    it('restores the focused node after reload when it becomes available later', async () => {
+        const clock = sinon.useFakeTimers();
+        try {
+            let includeDivInDocument = true;
+            const documentResponse = (includeDiv) => ({
+                root: {
+                    nodeId: 1,
+                    backendNodeId: 2,
+                    nodeType: Node.DOCUMENT_NODE,
+                    nodeName: '#document',
+                    childNodeCount: 1,
+                    children: [{
+                            nodeId: 4,
+                            parentId: 1,
+                            backendNodeId: 5,
+                            nodeType: Node.ELEMENT_NODE,
+                            nodeName: 'HTML',
+                            childNodeCount: 1,
+                            children: [{
+                                    nodeId: 6,
+                                    parentId: 4,
+                                    backendNodeId: 7,
+                                    nodeType: Node.ELEMENT_NODE,
+                                    nodeName: 'BODY',
+                                    childNodeCount: includeDiv ? 1 : 0,
+                                    children: includeDiv ? [{
+                                            nodeId: 8,
+                                            parentId: 6,
+                                            backendNodeId: 9,
+                                            nodeType: Node.ELEMENT_NODE,
+                                            nodeName: 'DIV',
+                                            childNodeCount: 0,
+                                            attributes: ['id', 'target'],
+                                        }] :
+                                        [],
+                                }],
+                        }],
+                },
+            });
+            connection.setHandler('DOM.getDocument', null);
+            connection.setSuccessHandler('DOM.getDocument', () => documentResponse(includeDivInDocument));
+            connection.setSuccessHandler('DOM.pushNodeByPathToFrontend', () => ({
+                nodeId: 8,
+            }));
+            SDK.TargetManager.TargetManager.instance().setScopeTarget(target);
+            const model = target.model(SDK.DOMModel.DOMModel);
+            assert.exists(model);
+            const panel = Elements.ElementsPanel.ElementsPanel.instance({ forceNew: true });
+            panel.markAsRoot();
+            renderElementIntoDOM(panel);
+            await model.requestDocument();
+            const inspectedDocument = model.existingDocument();
+            assert.exists(inspectedDocument);
+            const body = inspectedDocument.body;
+            assert.exists(body);
+            const bodyChildren = body.children();
+            assert.exists(bodyChildren);
+            const div = bodyChildren[0];
+            assert.exists(div);
+            panel.selectDOMNode(div, true);
+            assert.strictEqual(panel.selectedDOMNode()?.nodeName(), 'DIV');
+            // Simulate a reload where the selected node appears later.
+            includeDivInDocument = false;
+            dispatchEvent(target, 'DOM.documentUpdated');
+            // Wait for the new document to arrive.
+            await model.requestDocument();
+            await clock.tickAsync(0);
+            assert.strictEqual(panel.selectedDOMNode()?.nodeName(), 'BODY');
+            // Insert the node later and let the retry logic pick it up.
+            await clock.tickAsync(300);
+            dispatchEvent(target, 'DOM.childNodeInserted', {
+                parentNodeId: 6,
+                previousNodeId: 0,
+                node: {
+                    nodeId: 8,
+                    parentId: 6,
+                    backendNodeId: 9,
+                    nodeType: Node.ELEMENT_NODE,
+                    nodeName: 'DIV',
+                    childNodeCount: 0,
+                    attributes: ['id', 'target'],
+                },
+            });
+            await clock.tickAsync(600);
+            assert.strictEqual(panel.selectedDOMNode()?.nodeName(), 'DIV');
+            panel.detach();
+            // Ensure all pending tasks triggered via the fake timers have a chance to
+            // complete before the test ends.
+            await clock.runAllAsync();
+        }
+        finally {
+            clock.restore();
+        }
+    });
+    it('searches in in scope models', () => {
+        const anotherTarget = createTarget({ connection });
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(target);
+        const inScopeModel = target.model(SDK.DOMModel.DOMModel);
+        assert.exists(inScopeModel);
+        const inScopeSearch = sinon.spy(inScopeModel, 'performSearch');
+        const outOfScopeModel = anotherTarget.model(SDK.DOMModel.DOMModel);
+        assert.exists(outOfScopeModel);
+        const outOfScopeSearch = sinon.spy(outOfScopeModel, 'performSearch');
+        const panel = Elements.ElementsPanel.ElementsPanel.instance({ forceNew: true });
+        panel.performSearch({ query: 'foo' }, false);
+        sinon.assert.called(inScopeSearch);
+        sinon.assert.notCalled(outOfScopeSearch);
+        anotherTarget.dispose('test');
+    });
+    it('hides DOM node highlight on search canceled and when navigating search results', async () => {
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(target);
+        const domModel = target.model(SDK.DOMModel.DOMModel);
+        const node1 = sinon.createStubInstance(SDK.DOMModel.DOMNode);
+        const node2 = sinon.createStubInstance(SDK.DOMModel.DOMNode);
+        sinon.stub(domModel, 'performSearch').resolves(2);
+        const searchResultStub = sinon.stub(domModel, 'searchResult');
+        searchResultStub.withArgs(0).resolves(node1);
+        searchResultStub.withArgs(1).resolves(node2);
+        const hideStub = sinon.stub(SDK.OverlayModel.OverlayModel, 'hideDOMNodeHighlight');
+        const panel = Elements.ElementsPanel.ElementsPanel.instance({ forceNew: true });
+        panel.performSearch({ query: 'div' }, true);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        sinon.assert.calledOnce(node1.scrollIntoView);
+        hideStub.resetHistory();
+        panel.jumpToNextSearchResult();
+        sinon.assert.calledWith(hideStub, SDK.TargetManager.TargetManager.instance());
+        await new Promise(resolve => setTimeout(resolve, 0));
+        sinon.assert.calledOnce(node2.scrollIntoView);
+        hideStub.resetHistory();
+        panel.onSearchCanceled();
+        sinon.assert.calledWith(hideStub, SDK.TargetManager.TargetManager.instance());
+        hideStub.restore();
+    });
+    // Causes unit test execution to abort
+    it('deleting a node unhides it if it was hidden', async () => {
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(null);
+        const model = target.model(SDK.DOMModel.DOMModel);
+        assert.exists(model);
+        await model.requestDocument();
+        const panel = Elements.ElementsPanel.ElementsPanel.instance({ forceNew: true });
+        panel.markAsRoot();
+        renderElementIntoDOM(panel);
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(target);
+        const domTree = panel.getDOMTreeWidgetForTesting();
+        assert.exists(domTree);
+        const selectedNode = domTree.selectedDOMNode();
+        assert.exists(selectedNode);
+        assert.isTrue(domTree.isNodeExpanded(selectedNode));
+        assert.strictEqual(selectedNode.nodeName(), 'BODY');
+        assert.isFalse(domTree.isToggledToHidden(selectedNode));
+        const mockResolveToObject = sinon.mock().twice().returns({ callFunction: () => { }, release: () => { } });
+        selectedNode.resolveToObject = mockResolveToObject;
+        await domTree.toggleHideElement(selectedNode);
+        assert.isTrue(domTree.isToggledToHidden(selectedNode));
+        await domTree.removeNode(selectedNode);
+        assert.isFalse(domTree.isToggledToHidden(selectedNode));
+        panel.detach();
+    });
+    // Causes unit test execution to abort
+    it('duplicating a hidden node results in a hidden copy', async () => {
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(null);
+        const model = target.model(SDK.DOMModel.DOMModel);
+        assert.exists(model);
+        await model.requestDocument();
+        const panel = Elements.ElementsPanel.ElementsPanel.instance({ forceNew: true });
+        panel.markAsRoot();
+        renderElementIntoDOM(panel);
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(target);
+        const domTree = panel.getDOMTreeWidgetForTesting();
+        assert.exists(domTree);
+        const selectedNode = domTree.selectedDOMNode();
+        assert.exists(selectedNode);
+        assert.isTrue(domTree.isNodeExpanded(selectedNode));
+        assert.strictEqual(selectedNode.nodeName(), 'BODY');
+        assert.isFalse(domTree.isToggledToHidden(selectedNode));
+        const mockResolveToObject = sinon.mock().twice().returns({ callFunction: () => { }, release: () => { } });
+        selectedNode.resolveToObject = mockResolveToObject;
+        // Mock out a few things in the UI that's not necessary for this test.
+        const treeOutline = domTree.getTreeOutlineForTesting();
+        if (treeOutline) {
+            const insertChildElement = sinon.mock().atLeast(1).returns(undefined);
+            treeOutline.insertChildElement = insertChildElement;
+        }
+        const animateOnDOMUpdate = sinon.mock().atLeast(1).returns(undefined);
+        Elements.ElementsTreeElement.ElementsTreeElement.animateOnDOMUpdate = animateOnDOMUpdate;
+        const stylesSidebarPaneUpdate = sinon.mock().atLeast(1).returns(undefined);
+        panel.stylesWidget.performUpdate = stylesSidebarPaneUpdate;
+        await domTree.toggleHideElement(selectedNode);
+        assert.isTrue(domTree.isToggledToHidden(selectedNode));
+        domTree.duplicateNode(selectedNode);
+        await raf();
+        const copiedNode = selectedNode.nextSibling;
+        assert.exists(copiedNode);
+        assert.strictEqual(copiedNode.nodeName(), 'BODY');
+        assert.isTrue(copiedNode !== null && domTree.isToggledToHidden(copiedNode));
+        treeOutline?.runPendingUpdates();
+        panel.detach();
+    });
+    it('updates elements tree after bfcache navigation', async () => {
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(null);
+        const model = target.model(SDK.DOMModel.DOMModel);
+        assert.exists(model);
+        const page1Document = {
+            root: {
+                nodeId: 1,
+                backendNodeId: 2,
+                nodeType: Node.DOCUMENT_NODE,
+                nodeName: '#document',
+                childNodeCount: 1,
+                children: [{
+                        nodeId: 4,
+                        parentId: 1,
+                        backendNodeId: 5,
+                        nodeType: Node.ELEMENT_NODE,
+                        nodeName: 'HTML',
+                        childNodeCount: 1,
+                        children: [{
+                                nodeId: 6,
+                                parentId: 4,
+                                backendNodeId: 7,
+                                nodeType: Node.ELEMENT_NODE,
+                                nodeName: 'BODY',
+                                childNodeCount: 1,
+                                children: [{
+                                        nodeId: 8,
+                                        parentId: 6,
+                                        backendNodeId: 9,
+                                        nodeType: Node.ELEMENT_NODE,
+                                        nodeName: 'DIV',
+                                        childNodeCount: 0,
+                                        attributes: ['id', 'page1'],
+                                    }],
+                            }],
+                    }],
+            },
+        };
+        const page2Document = {
+            root: {
+                nodeId: 11,
+                backendNodeId: 12,
+                nodeType: Node.DOCUMENT_NODE,
+                nodeName: '#document',
+                childNodeCount: 1,
+                children: [{
+                        nodeId: 14,
+                        parentId: 11,
+                        backendNodeId: 15,
+                        nodeType: Node.ELEMENT_NODE,
+                        nodeName: 'HTML',
+                        childNodeCount: 1,
+                        children: [{
+                                nodeId: 16,
+                                parentId: 14,
+                                backendNodeId: 17,
+                                nodeType: Node.ELEMENT_NODE,
+                                nodeName: 'BODY',
+                                childNodeCount: 1,
+                                children: [{
+                                        nodeId: 18,
+                                        parentId: 16,
+                                        backendNodeId: 19,
+                                        nodeType: Node.ELEMENT_NODE,
+                                        nodeName: 'DIV',
+                                        childNodeCount: 0,
+                                        attributes: ['id', 'page2'],
+                                    }],
+                            }],
+                    }],
+            },
+        };
+        let currentDocument = page1Document;
+        connection.setHandler('DOM.getDocument', null);
+        connection.setSuccessHandler('DOM.getDocument', () => currentDocument);
+        const panel = Elements.ElementsPanel.ElementsPanel.instance({ forceNew: true });
+        panel.markAsRoot();
+        renderElementIntoDOM(panel);
+        SDK.TargetManager.TargetManager.instance().setScopeTarget(target);
+        await model.requestDocument();
+        const domTree = panel.getDOMTreeWidgetForTesting();
+        assert.exists(domTree);
+        // Verify Page 1 is loaded
+        assert.strictEqual(domTree.rootDOMNode?.nodeName(), '#document');
+        const doc1 = domTree.rootDOMNode;
+        const body = doc1?.body;
+        assert.exists(body);
+        const children1 = body.children();
+        assert.exists(children1);
+        assert.strictEqual(children1[0].getAttribute('id'), 'page1');
+        // Simulate navigation to Page 2
+        currentDocument = page2Document;
+        dispatchEvent(target, 'DOM.documentUpdated');
+        await model.requestDocument();
+        // Verify Page 2 is loaded
+        const doc2 = domTree.rootDOMNode;
+        assert.exists(doc2?.body);
+        const children2 = doc2.body.children();
+        assert.exists(children2);
+        assert.strictEqual(children2[0].getAttribute('id'), 'page2');
+        // Simulate BFCache navigation back to Page 1
+        currentDocument = page1Document;
+        dispatchEvent(target, 'DOM.documentUpdated');
+        await model.requestDocument();
+        // Verify Page 1 is restored
+        const doc3 = domTree.rootDOMNode;
+        assert.exists(doc3?.body);
+        const children3 = doc3.body.children();
+        assert.exists(children3);
+        assert.strictEqual(children3[0].getAttribute('id'), 'page1');
+        panel.detach();
+    });
+    describe('tracking and updating Computed styles', () => {
+        const StylesSidebarPane = Elements.StylesSidebarPane.StylesSidebarPane;
+        const ComputedStyleModel = ComputedStyle.ComputedStyleModel.ComputedStyleModel;
+        const ComputedStyleWidget = Elements.ComputedStyleWidget.ComputedStyleWidget;
+        let computedStyleNodeSpy;
+        let computedStyleFetchStylesSpy;
+        let computedStyleFetchCascadeSpy;
+        let panel;
+        let node;
+        let cssModel;
+        let computedStylesShowingStub;
+        beforeEach(() => {
+            computedStylesShowingStub = sinon.stub(ComputedStyleWidget.prototype, 'isShowing');
+            computedStyleFetchStylesSpy = sinon.stub(ComputedStyleModel.prototype, 'fetchComputedStyle').resolves(null);
+            computedStyleFetchCascadeSpy = sinon.stub(ComputedStyleModel.prototype, 'fetchMatchedCascade').resolves(null);
+            Common.Debouncer.enableTestOverride();
+            const viewManager = UI.ViewManager.ViewManager.instance({ forceNew: true });
+            sinon.stub(viewManager, 'showView');
+            panel = Elements.ElementsPanel.ElementsPanel.instance({ forceNew: true });
+            computedStyleNodeSpy = sinon.spy(panel.stylesWidget.computedStyleModel(), 'node', ['get', 'set']);
+            cssModel = sinon.createStubInstance(SDK.CSSModel.CSSModel, {
+                target: sinon.createStubInstance(SDK.Target.Target, {
+                    model: null,
+                }),
+            });
+            const domModel = sinon.createStubInstance(SDK.DOMModel.DOMModel, {
+                cssModel,
+            });
+            node = sinon.createStubInstance(SDK.DOMModel.DOMNode, {
+                domModel,
+            });
+            node.id = 1;
+        });
+        afterEach(() => {
+            UI.Context.Context.instance().setFlavor(SDK.DOMModel.DOMNode, null);
+            UI.Context.Context.instance().setFlavor(StylesSidebarPane, null);
+            Common.Debouncer.disableTestOverride();
+            panel.detach();
+        });
+        it('updates the model when the selected DOM node changes', async () => {
+            UI.Context.Context.instance().setFlavor(SDK.DOMModel.DOMNode, node);
+            sinon.assert.calledOnceWithExactly(computedStyleNodeSpy.set, node);
+        });
+        it('fetches the styles from the computed style model when the dom node changes', async () => {
+            UI.Context.Context.instance().setFlavor(SDK.DOMModel.DOMNode, node);
+            await expectCalled(computedStyleFetchStylesSpy);
+            await expectCalled(computedStyleFetchCascadeSpy);
+        });
+        it('enables tracking when the ComputedStyleWidget is shown', async () => {
+            UI.Context.Context.instance().setFlavor(SDK.DOMModel.DOMNode, node);
+            computedStylesShowingStub.callsFake(() => true);
+            panel.selectAndShowSidebarTab("computed" /* Elements.ElementsPanel.SidebarPaneTabId.COMPUTED */);
+            await expectCall(cssModel.trackComputedStyleUpdatesForNode);
+            sinon.assert.calledOnceWithExactly(cssModel.trackComputedStyleUpdatesForNode, node.id);
+        });
+        it('stops tracking when the ComputedStyleWidget is removed', async () => {
+            UI.Context.Context.instance().setFlavor(SDK.DOMModel.DOMNode, node);
+            computedStylesShowingStub.callsFake(() => true);
+            panel.selectAndShowSidebarTab("computed" /* Elements.ElementsPanel.SidebarPaneTabId.COMPUTED */);
+            await expectCall(cssModel.trackComputedStyleUpdatesForNode);
+            sinon.assert.calledOnceWithExactly(cssModel.trackComputedStyleUpdatesForNode, node.id);
+            cssModel.trackComputedStyleUpdatesForNode.resetHistory();
+            computedStylesShowingStub.callsFake(() => false);
+            panel.selectAndShowSidebarTab("styles" /* Elements.ElementsPanel.SidebarPaneTabId.STYLES */);
+            await expectCall(cssModel.trackComputedStyleUpdatesForNode);
+            sinon.assert.calledOnceWithExactly(cssModel.trackComputedStyleUpdatesForNode, undefined);
+        });
+        it('enables tracking with a StylesSidebarPane and the DevToolsAnimationStylesInStylesTab experiment is enabled', async () => {
+            UI.Context.Context.instance().setFlavor(SDK.DOMModel.DOMNode, node);
+            updateHostConfig({
+                devToolsAnimationStylesInStylesTab: {
+                    enabled: true,
+                },
+            });
+            const stylesSidebarPane = sinon.createStubInstance(StylesSidebarPane);
+            UI.Context.Context.instance().setFlavor(StylesSidebarPane, stylesSidebarPane);
+            await expectCall(cssModel.trackComputedStyleUpdatesForNode);
+            sinon.assert.calledOnceWithExactly(cssModel.trackComputedStyleUpdatesForNode, node.id);
+        });
+        it('stops tracking when the StylesSidebarPane is removed', async () => {
+            UI.Context.Context.instance().setFlavor(SDK.DOMModel.DOMNode, node);
+            updateHostConfig({
+                devToolsAnimationStylesInStylesTab: {
+                    enabled: true,
+                },
+            });
+            const stylesSidebarPane = sinon.createStubInstance(StylesSidebarPane);
+            UI.Context.Context.instance().setFlavor(StylesSidebarPane, stylesSidebarPane);
+            await expectCall(cssModel.trackComputedStyleUpdatesForNode);
+            sinon.assert.calledOnceWithExactly(cssModel.trackComputedStyleUpdatesForNode, node.id);
+            cssModel.trackComputedStyleUpdatesForNode.resetHistory();
+            UI.Context.Context.instance().setFlavor(StylesSidebarPane, null);
+            await expectCall(cssModel.trackComputedStyleUpdatesForNode);
+            sinon.assert.calledOnceWithExactly(cssModel.trackComputedStyleUpdatesForNode, undefined);
+        });
+        it('does not enabled tracking with a StylesSidebarPane but the DevToolsAnimationStylesInStylesTab experiment is disabled', async () => {
+            UI.Context.Context.instance().setFlavor(SDK.DOMModel.DOMNode, node);
+            updateHostConfig({
+                devToolsAnimationStylesInStylesTab: {
+                    enabled: false,
+                },
+            });
+            const stylesSidebarPane = sinon.createStubInstance(StylesSidebarPane);
+            UI.Context.Context.instance().setFlavor(StylesSidebarPane, stylesSidebarPane);
+            await expectCall(cssModel.trackComputedStyleUpdatesForNode);
+            sinon.assert.calledOnceWithExactly(cssModel.trackComputedStyleUpdatesForNode, undefined);
+        });
+    });
+});
+//# sourceMappingURL=ElementsPanel.test.js.map

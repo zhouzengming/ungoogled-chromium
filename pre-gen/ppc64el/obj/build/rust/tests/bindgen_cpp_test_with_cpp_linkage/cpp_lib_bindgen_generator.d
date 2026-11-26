@@ -1,0 +1,1 @@
+gen/build/rust/tests/bindgen_cpp_test_with_cpp_linkage/cpp_lib_bindgen_generator/bindings.rs: ../../build/rust/tests/bindgen_cpp_test_with_cpp_linkage/cpp.h

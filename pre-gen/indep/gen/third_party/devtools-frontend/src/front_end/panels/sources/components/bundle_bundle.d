@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/sources/components/components.js: gen/third_party/devtools-frontend/src/front_end/panels/sources/components/HeadersView.css.js ../../third_party/devtools-frontend/src/front_end/panels/sources/components/HeadersView.ts ../../third_party/devtools-frontend/src/front_end/panels/sources/components/components.ts

@@ -1,0 +1,38 @@
+// Copyright 2020 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+import { increaseTimeoutForPerfPanel, navigateToPerformanceTab, openCaptureSettings, } from '../helpers/performance-helpers.js';
+import { expectVeEvents, veChange } from '../helpers/visual-logging-helpers.js';
+describe('The Performance panel', function () {
+    setup({ dockingMode: 'undocked' });
+    increaseTimeoutForPerfPanel(this);
+    async function setupPerformancePanel(devToolsPage, inspectedPage) {
+        await navigateToPerformanceTab(devToolsPage, inspectedPage, 'empty');
+        await openCaptureSettings(devToolsPage, '.timeline-settings-pane');
+    }
+    async function assertOption(select, expected) {
+        assert.strictEqual(await select.evaluate(el => el.selectedOptions.length), 1);
+        assert.strictEqual(await select.evaluate(el => el.selectedOptions[0].getAttribute('aria-label')), expected);
+    }
+    it('can change network throttling conditions and logs the change event', async ({ devToolsPage, inspectedPage }) => {
+        await setupPerformancePanel(devToolsPage, inspectedPage);
+        const veRoot = 'Panel: timeline > Pane: timeline-settings-pane';
+        const networkDropdownVeName = 'DropDown: active-network-condition-key';
+        // Initial state: No throttling, then change to "3G"
+        const select = await devToolsPage.waitForAria('Network:');
+        await assertOption(select, 'Disabled: No throttling');
+        await select.select('3G');
+        await assertOption(select, 'Presets: 3G');
+        await expectVeEvents(devToolsPage, [veChange(networkDropdownVeName)], veRoot);
+        // Change to "Slow 4G"
+        await select.select('Slow 4G');
+        await assertOption(select, 'Presets: Slow 4G');
+        await expectVeEvents(devToolsPage, [veChange(networkDropdownVeName)], veRoot);
+        // Change back to "No throttling"
+        await select.select('No throttling');
+        await assertOption(select, 'Disabled: No throttling');
+        await expectVeEvents(devToolsPage, [veChange(networkDropdownVeName)], veRoot);
+    });
+});
+//# sourceMappingURL=settings-throttle-change.test.js.map

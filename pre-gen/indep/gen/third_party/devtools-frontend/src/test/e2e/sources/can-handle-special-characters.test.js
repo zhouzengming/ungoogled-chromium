@@ -1,0 +1,45 @@
+// Copyright 2022 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+import { describe, it } from 'mocha';
+import { resolve } from 'node:path';
+import { addBreakpointForLine, executionLineHighlighted, getBreakpointDecorators, getOpenSources, openFileInEditor, openFileInSourcesPanel, openSourcesPanel, RESUME_BUTTON, } from '../helpers/sources-helpers.js';
+describe('Sources Tab', () => {
+    async function runTest(filename, functionName, devToolsPage, inspectedPage) {
+        await openFileInEditor(devToolsPage, filename);
+        await addBreakpointForLine(devToolsPage, 2);
+        const scriptEvaluation = inspectedPage.evaluate(functionName + '();');
+        await devToolsPage.waitFor(RESUME_BUTTON);
+        // Breakpoint is still visible
+        assert.deepEqual(await getBreakpointDecorators(devToolsPage, false, 1), [2]);
+        await executionLineHighlighted(devToolsPage);
+        // Title of tab matches filename
+        assert.deepEqual(await getOpenSources(devToolsPage), [filename]);
+        await devToolsPage.click(RESUME_BUTTON);
+        await scriptEvaluation;
+    }
+    async function loadFromFilePath(devToolsPage, inspectedPage) {
+        const fileUrl = 'file://' +
+            resolve(import.meta.dirname, '..', '..', 'e2e', 'resources', 'sources', 'filesystem', 'special-characters.html');
+        await inspectedPage.goTo(fileUrl);
+        await openSourcesPanel(devToolsPage);
+    }
+    it('can handle filename with space loading over the network', async ({ devToolsPage, inspectedPage }) => {
+        await openFileInSourcesPanel(devToolsPage, inspectedPage, 'filesystem/special-characters.html');
+        await runTest('with space.js', 'f1', devToolsPage, inspectedPage);
+    });
+    it('can handle filename with escape sequence loading over the network', async ({ devToolsPage, inspectedPage }) => {
+        await openFileInSourcesPanel(devToolsPage, inspectedPage, 'filesystem/special-characters.html');
+        await runTest('with%20space.js', 'f2', devToolsPage, inspectedPage);
+    });
+    it('can handle filename with space loading from local file', async ({ devToolsPage, inspectedPage }) => {
+        await loadFromFilePath(devToolsPage, inspectedPage);
+        await runTest('with space.js', 'f1', devToolsPage, inspectedPage);
+    });
+    it('can handle filename with escape sequence loading from local file', async ({ devToolsPage, inspectedPage }) => {
+        await loadFromFilePath(devToolsPage, inspectedPage);
+        await runTest('with%20space.js', 'f2', devToolsPage, inspectedPage);
+    });
+});
+//# sourceMappingURL=can-handle-special-characters.test.js.map

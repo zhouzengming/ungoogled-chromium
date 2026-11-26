@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/legacy/components/settings_ui/settings_ui.js: ../../third_party/devtools-frontend/src/front_end/ui/legacy/components/settings_ui/SettingsUI.ts ../../third_party/devtools-frontend/src/front_end/ui/legacy/components/settings_ui/settings_ui.ts

@@ -1,0 +1,45 @@
+import { css } from '//resources/lit/v3_0/lit.rollup.js';
+let instance = null;
+export function getCss() {
+    return instance || (instance = [...[], css `
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+#searchField {
+  --cr-toolbar-search-field-background: var(--color-toolbar);
+  flex-shrink: 0;
+  margin: 12px;
+  margin-top: 4px;
+  width: auto;
+}
+
+#shortcut {
+  color: var(--cr-secondary-text-color);
+  margin-inline-end: 12px;
+}
+
+#list {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  padding: 0 8px;
+}
+
+#list::-webkit-scrollbar {
+  background: transparent;
+  width: 8px;
+}
+
+#list::-webkit-scrollbar-thumb {
+  background: var(--color-side-panel-scrollbar-thumb);
+  background-clip: content-box;
+  border: solid 1.5px transparent;
+  border-radius: 100px;
+}`]);
+}

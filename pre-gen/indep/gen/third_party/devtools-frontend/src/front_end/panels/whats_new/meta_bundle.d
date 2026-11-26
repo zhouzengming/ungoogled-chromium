@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/panels/whats_new/whats_new-meta.js: ../../third_party/devtools-frontend/src/front_end/panels/whats_new/whats_new-meta.ts

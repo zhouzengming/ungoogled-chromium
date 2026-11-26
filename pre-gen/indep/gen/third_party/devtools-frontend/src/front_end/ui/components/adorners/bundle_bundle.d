@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/components/adorners/adorners.js: gen/third_party/devtools-frontend/src/front_end/ui/components/adorners/adorner.css.js ../../third_party/devtools-frontend/src/front_end/ui/components/adorners/Adorner.ts ../../third_party/devtools-frontend/src/front_end/ui/components/adorners/adorners.ts

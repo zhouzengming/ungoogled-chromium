@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/json5/json5.js: ../../third_party/devtools-frontend/src/front_end/third_party/json5/lib/index.js ../../third_party/devtools-frontend/src/front_end/third_party/json5/json5.ts

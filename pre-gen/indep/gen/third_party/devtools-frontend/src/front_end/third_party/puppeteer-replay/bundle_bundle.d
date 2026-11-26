@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/third_party/puppeteer-replay/puppeteer-replay.js: ../../third_party/devtools-frontend/src/front_end/third_party/puppeteer-replay/package/lib/main.js ../../third_party/devtools-frontend/src/front_end/third_party/puppeteer-replay/puppeteer-replay.ts

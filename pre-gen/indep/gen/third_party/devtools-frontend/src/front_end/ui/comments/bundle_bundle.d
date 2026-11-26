@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/comments/comments.js: ../../third_party/devtools-frontend/src/front_end/ui/comments/CommentAnchorResolver.ts ../../third_party/devtools-frontend/src/front_end/ui/comments/CommentOverlayManager.ts ../../third_party/devtools-frontend/src/front_end/ui/comments/comments.ts

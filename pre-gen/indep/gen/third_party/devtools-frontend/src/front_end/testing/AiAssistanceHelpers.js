@@ -1,0 +1,259 @@
+// Copyright 2025 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+import { assert } from 'chai';
+import sinon from 'sinon';
+import * as Common from '../core/common/common.js';
+import * as Host from '../core/host/host.js';
+import * as Platform from '../core/platform/platform.js';
+import * as SDK from '../core/sdk/sdk.js';
+import * as AiAssistance from '../models/ai_assistance/ai_assistance.js';
+import * as Bindings from '../models/bindings/bindings.js';
+import * as Breakpoints from '../models/breakpoints/breakpoints.js';
+import * as Persistence from '../models/persistence/persistence.js';
+import * as ProjectSettings from '../models/project_settings/project_settings.js';
+import * as Workspace from '../models/workspace/workspace.js';
+import * as WorkspaceDiff from '../models/workspace_diff/workspace_diff.js';
+import { createTarget, } from './EnvironmentHelpers.js';
+import { createContentProviderUISourceCodes, createFileSystemUISourceCode } from './UISourceCodeHelpers.js';
+function createMockAidaClient(doConversation) {
+    const aidaClient = sinon.createStubInstance(Host.AidaClient.AidaClient);
+    aidaClient.doConversation.callsFake(doConversation);
+    return aidaClient;
+}
+export const MockAidaAbortError = {
+    abortError: true,
+};
+export const MockAidaFetchError = {
+    fetchError: true,
+};
+export const MockAidaQuotaError = {
+    quotaError: true,
+};
+export const MockAidaPayloadLimitError = {
+    payloadLimitError: true,
+};
+/**
+ * Creates a mock AIDA client that responds using `data`.
+ *
+ * Each first-level item of `data` is a single response.
+ * Each second-level item of `data` is a chunk of a response.
+ * The last chunk sets completed flag to true;
+ */
+export function mockAidaClient(data = []) {
+    let callId = 0;
+    async function* provideAnswer(_, options) {
+        if (!data[callId]) {
+            throw new Error('No data provided to the mock client');
+        }
+        for (const [idx, chunk] of data[callId].entries()) {
+            if (options?.signal?.aborted || ('abortError' in chunk)) {
+                throw new Host.AidaClient.AidaAbortError();
+            }
+            if ('fetchError' in chunk) {
+                throw new Error('Fetch error');
+            }
+            if ('quotaError' in chunk) {
+                throw new Host.AidaClient.AidaQuotaError();
+            }
+            if ('payloadLimitError' in chunk) {
+                throw new Host.AidaClient.AidaPayloadTooLargeError('payload size exceeds the limit');
+            }
+            const metadata = chunk.metadata ?? {};
+            if (metadata?.attributionMetadata?.attributionAction === Host.AidaClient.RecitationAction.BLOCK) {
+                throw new Host.AidaClient.AidaBlockError();
+            }
+            if (chunk.functionCalls?.length) {
+                callId++;
+                yield { ...chunk, metadata, completed: true };
+                break;
+            }
+            const completed = idx === data[callId].length - 1;
+            if (completed) {
+                callId++;
+            }
+            yield {
+                ...chunk,
+                metadata,
+                completed,
+            };
+        }
+    }
+    return createMockAidaClient(provideAnswer);
+}
+export async function createUISourceCode(options) {
+    const url = options?.url ?? Platform.DevToolsPath.urlString `http://example.test/script.js`;
+    const { project } = createContentProviderUISourceCodes({
+        items: [
+            {
+                url,
+                mimeType: options?.mimeType ?? 'application/javascript',
+                resourceType: options?.resourceType ?? Common.ResourceType.resourceTypes.Script,
+                content: options?.content,
+            },
+        ],
+        target: createTarget(),
+    });
+    const uiSourceCode = project.uiSourceCodeForURL(url);
+    if (!uiSourceCode) {
+        throw new Error('Failed to create a test uiSourceCode');
+    }
+    if (!uiSourceCode.contentType().isTextType()) {
+        uiSourceCode?.setContent('binary', true);
+    }
+    if (options?.requestContentData) {
+        await uiSourceCode.requestContentData();
+    }
+    return uiSourceCode;
+}
+export const setupAutomaticFileSystem = (options = {
+    hasFileSystem: false,
+}) => {
+    const root = '/path/to/my-automatic-file-system';
+    const uuid = '549bbf9b-48b2-4af7-aebd-d3ba68993094';
+    const inspectorFrontendHost = sinon.createStubInstance(Host.InspectorFrontendHost.InspectorFrontendHostStub);
+    inspectorFrontendHost.events = sinon.createStubInstance(Common.ObjectWrapper.ObjectWrapper);
+    const projectSettingsModel = sinon.createStubInstance(ProjectSettings.ProjectSettingsModel.ProjectSettingsModel);
+    sinon.stub(projectSettingsModel, 'availability').value('available');
+    sinon.stub(projectSettingsModel, 'projectSettings').value(options.hasFileSystem ? { workspace: { root, uuid } } : {});
+    const manager = Persistence.AutomaticFileSystemManager.AutomaticFileSystemManager.instance({
+        forceNew: true,
+        inspectorFrontendHost,
+        projectSettingsModel,
+    });
+    sinon.stub(manager, 'connectAutomaticFileSystem').resolves(true);
+};
+export function initializePersistenceImplForTests() {
+    const workspace = Workspace.Workspace.WorkspaceImpl.instance({ forceNew: true });
+    const debuggerWorkspaceBinding = Bindings.DebuggerWorkspaceBinding.DebuggerWorkspaceBinding.instance({
+        forceNew: true,
+        targetManager: SDK.TargetManager.TargetManager.instance(),
+        resourceMapping: new Bindings.ResourceMapping.ResourceMapping(SDK.TargetManager.TargetManager.instance(), workspace),
+        workspace,
+        ignoreListManager: Workspace.IgnoreListManager.IgnoreListManager.instance({ forceNew: true }),
+    });
+    const breakpointManager = Breakpoints.BreakpointManager.BreakpointManager.instance({
+        forceNew: true,
+        targetManager: SDK.TargetManager.TargetManager.instance(),
+        workspace,
+        debuggerWorkspaceBinding,
+        settings: Common.Settings.Settings.instance(),
+    });
+    Persistence.Persistence.PersistenceImpl.instance({ forceNew: true, workspace, breakpointManager });
+    Persistence.NetworkPersistenceManager.NetworkPersistenceManager.instance({ forceNew: true, workspace });
+    WorkspaceDiff.WorkspaceDiff.workspaceDiff({ forceNew: true });
+}
+/**
+ * Removes the 'id' field from a message.
+ * Note: the return type is a distributive conditional type. This is required
+ * to ensure that Omit is applied to each member of the message union
+ * individually. Without this, Omit<Message, 'id'> would only preserve
+ * properties common to all members of the union, losing fields like 'text'
+ * (from UserChatMessage) or 'parts' (from ModelChatMessage).
+ */
+export function stripId(message) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { id, ...rest } = message;
+    return rest;
+}
+export function createTestFilesystem(fileSystemPath, files) {
+    const { project, uiSourceCode } = createFileSystemUISourceCode({
+        url: Platform.DevToolsPath.urlString `${fileSystemPath}/index.html`,
+        mimeType: 'text/html',
+        content: 'content',
+        fileSystemPath,
+    });
+    uiSourceCode.setWorkingCopy('content');
+    for (const file of files ?? []) {
+        const uiSourceCode = project.createUISourceCode(Platform.DevToolsPath.urlString `${fileSystemPath}/${file.path}`, Common.ResourceType.resourceTypes.Script);
+        project.addUISourceCode(uiSourceCode);
+        uiSourceCode.setWorkingCopy(file.content);
+    }
+    return { project, uiSourceCode };
+}
+export function assertIsError(response, expectedError) {
+    if (!('error' in response)) {
+        assert.fail(`Expected error response, but got: ${JSON.stringify(response)}`);
+    }
+    if (typeof expectedError === 'string') {
+        assert.strictEqual(response.error, expectedError);
+    }
+    else if (expectedError instanceof RegExp) {
+        assert.match(response.error, expectedError);
+    }
+}
+export function assertIsResult(response) {
+    if (!('result' in response)) {
+        assert.fail(`Expected success result response, but got: ${JSON.stringify(response)}`);
+    }
+}
+export function assertRequiresApproval(response) {
+    if (!('requiresApproval' in response)) {
+        assert.fail(`Expected response requiring approval, but got: ${JSON.stringify(response)}`);
+    }
+}
+export function assertIsContext(response) {
+    if (!('context' in response)) {
+        assert.fail(`Expected context response, but got: ${JSON.stringify(response)}`);
+    }
+}
+/**
+ * Creates a dummy File object containing a solid red image with the given dimensions.
+ *
+ * @param width Width of the dummy image in pixels (px).
+ * @param height Height of the dummy image in pixels (px).
+ */
+export async function createDummyImageFile(width, height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(0, 0, width, height);
+    }
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+    if (!blob) {
+        throw new Error('Failed to create blob');
+    }
+    return new File([blob], 'dummy.jpg', { type: 'image/jpeg' });
+}
+export function makeFakeParsedTrace(options = {}) {
+    return {
+        insights: new Map(),
+        metadata: {},
+        data: {
+            Meta: {
+                mainFrameNavigations: [],
+                traceBounds: { min: options.min ?? 0, max: options.max ?? 100 },
+                mainFrameURL: options.mainFrameURL ?? 'https://example.com',
+            },
+            Scripts: {
+                scripts: [],
+            },
+        },
+    };
+}
+export function stubPerformanceTraceFormatter(traceContext, methods) {
+    return sinon.stub(traceContext, 'createFormatter')
+        .returns(methods);
+}
+const UNLOADED_SKILLS_MANIFEST_HEADER = 'Available skills that are not yet loaded:';
+/**
+ * Asserts that a skill is loaded/active by verifying that its full manifest entry
+ * (`- <name>: <description>`) is omitted from the prompt's unloaded skills manifest.
+ */
+export function assertSkillLoaded(prompt, skillName) {
+    const expectedLine = `- ${skillName}: ${AiAssistance.SkillRegistry.SKILLS[skillName].description}`;
+    assert.notInclude(prompt, expectedLine, `Expected skill "${skillName}" to be loaded (omitted from unloaded manifest)`);
+}
+/**
+ * Asserts that a skill is not loaded by verifying that its full manifest entry
+ * (`- <name>: <description>`) is present in the prompt's unloaded skills manifest.
+ */
+export function assertSkillNotLoaded(prompt, skillName) {
+    assert.include(prompt, UNLOADED_SKILLS_MANIFEST_HEADER);
+    const expectedLine = `- ${skillName}: ${AiAssistance.SkillRegistry.SKILLS[skillName].description}`;
+    assert.include(prompt, expectedLine, `Expected skill "${skillName}" to be in the unloaded skills manifest`);
+}
+//# sourceMappingURL=AiAssistanceHelpers.js.map

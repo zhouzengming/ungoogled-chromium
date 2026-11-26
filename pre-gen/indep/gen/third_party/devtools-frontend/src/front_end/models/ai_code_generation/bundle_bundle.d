@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/models/ai_code_generation/ai_code_generation.js: ../../third_party/devtools-frontend/src/front_end/models/ai_code_generation/debug.ts ../../third_party/devtools-frontend/src/front_end/models/ai_code_generation/AiCodeGeneration.ts ../../third_party/devtools-frontend/src/front_end/models/ai_code_generation/ai_code_generation.ts

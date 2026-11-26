@@ -1,0 +1,6 @@
+debian/scripts/ungoogled-chromium-headless-shell usr/bin
+
+out/Release/chromium-headless-shell usr/lib/ungoogled-chromium
+
+out/Release/headless_*.pak usr/lib/ungoogled-chromium
+

@@ -1,0 +1,1 @@
+{"service_worker.rollup.js": ["../../tsc/highcontrast/common.js", "../../tsc/highcontrast/service_worker.js"]}

@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/entrypoints/wasmparser_worker/wasmparser_worker.js: ../../third_party/devtools-frontend/src/front_end/entrypoints/wasmparser_worker/WasmParserWorker.ts ../../third_party/devtools-frontend/src/front_end/entrypoints/wasmparser_worker/wasmparser_worker.ts

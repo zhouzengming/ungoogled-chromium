@@ -1,0 +1,1 @@
+gen/third_party/devtools-frontend/src/front_end/ui/components/snackbars/snackbars.js: gen/third_party/devtools-frontend/src/front_end/ui/components/snackbars/snackbar.css.js ../../third_party/devtools-frontend/src/front_end/ui/components/snackbars/Snackbar.ts ../../third_party/devtools-frontend/src/front_end/ui/components/snackbars/snackbars.ts
