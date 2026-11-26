@@ -140,6 +140,22 @@ void AddV4L2GpuPermissions(
       permissions->push_back(
           BrokerFilePermission::ReadWrite(mediaDevicePath.str()));
     }
+    for (size_t i = 0; i < 64; i++) {
+      std::ostringstream videoNode;
+      videoNode << "/dev/video" << i;
+      permissions->push_back(BrokerFilePermission::ReadWrite(videoNode.str()));
+    }
+    for (size_t i = 0; i < 16; i++) {
+      std::ostringstream mediaNode;
+      mediaNode << "/dev/media" << i;
+      permissions->push_back(BrokerFilePermission::ReadWrite(mediaNode.str()));
+    }
+    permissions->push_back(BrokerFilePermission::ReadWrite("/dev/dma_heap/system"));
+    permissions->push_back(BrokerFilePermission::ReadWrite("/dev/dma_heap/linux,cma"));
+    permissions->push_back(BrokerFilePermission::ReadOnly(
+        "/usr/lib/aarch64-linux-gnu/dri/qcom_drv_video.so"));
+    permissions->push_back(BrokerFilePermission::ReadOnly(
+        "/usr/lib/aarch64-linux-gnu/dri/msm_drv_video.so"));
   }
 
   // Image processor used on ARM platforms.
@@ -609,11 +625,12 @@ sandbox::syscall_broker::BrokerCommandSet CommandSetForGPU(
   command_set.set(sandbox::syscall_broker::COMMAND_ACCESS);
   command_set.set(sandbox::syscall_broker::COMMAND_OPEN);
   command_set.set(sandbox::syscall_broker::COMMAND_STAT);
-  if (IsChromeOS() &&
-      (options.use_amd_specific_policies ||
-       options.use_intel_specific_policies ||
-       options.use_nvidia_specific_policies ||
-       options.use_virtio_specific_policies || IsArchitectureArm())) {
+  if (IsArchitectureArm() ||
+      (IsChromeOS() &&
+       (options.use_amd_specific_policies ||
+        options.use_intel_specific_policies ||
+        options.use_nvidia_specific_policies ||
+        options.use_virtio_specific_policies))) {
     command_set.set(sandbox::syscall_broker::COMMAND_READLINK);
   }
   return command_set;

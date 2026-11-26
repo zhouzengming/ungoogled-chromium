@@ -510,11 +510,6 @@ void V4L2StatefulVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
       decoder_buffer_and_callbacks_.push(std::move(a));
     }
 
-  } else if (VideoCodecProfileToVideoCodec(config_.profile()) ==
-             VideoCodec::kHEVC) {
-    NOTIMPLEMENTED();
-    std::move(decode_cb).Run(DecoderStatus::Codes::kUnsupportedCodec);
-    return;
   } else {
     decoder_buffer_and_callbacks_.emplace(std::move(buffer),
                                           std::move(decode_cb));

@@ -243,6 +243,9 @@ std::optional<VideoFrameLayout> V4L2FormatToVideoFrameLayout(
 #if BUILDFLAG(IS_LINUX)
   if (video_fourcc == Fourcc(Fourcc::MM21)) {
     modifiers = DRM_FORMAT_MOD_MTK_16L_32S_TILE;
+  } else if (video_fourcc == Fourcc(Fourcc::Q08C) ||
+             video_fourcc == Fourcc(Fourcc::Q10C)) {
+    modifiers = DRM_FORMAT_MOD_QCOM_COMPRESSED;
   } else {
     modifiers = DRM_FORMAT_MOD_LINEAR;
   }
@@ -586,7 +589,8 @@ std::optional<SupportedVideoDecoderConfigs> GetSupportedV4L2DecoderConfigs() {
 #else
   constexpr char kVideoDevicePattern[] = "/dev/video";
   constexpr int kMaxDevices = 256;
-  candidate_paths.reserve(kMaxDevices);
+  candidate_paths.reserve(kMaxDevices + 1);
+  candidate_paths.push_back("/dev/video-dec0");
   for (int i = 0; i < kMaxDevices; ++i) {
     candidate_paths.push_back(
         base::StringPrintf("%s%d", kVideoDevicePattern, i));
@@ -653,10 +657,16 @@ bool IsV4L2DecoderStateful() {
       V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
 
   // V4L2 stateful formats (don't end up with _SLICE or _FRAME) supported.
-  constexpr std::array<uint32_t, 4> kSupportedStatefulInputCodecs = {
+  constexpr std::array<uint32_t, 5> kSupportedStatefulInputCodecs = {
       V4L2_PIX_FMT_H264,
+#if BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
+      V4L2_PIX_FMT_HEVC,
+#else
+      V4L2_PIX_FMT_H264,
+#endif
       V4L2_PIX_FMT_VP8,
       V4L2_PIX_FMT_VP9,
+      V4L2_PIX_FMT_AV1,
   };
 
   return std::find_first_of(v4l2_codecs.begin(), v4l2_codecs.end(),

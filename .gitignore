@@ -1,0 +1,12 @@
+/out/
+/debian/.debhelper/
+/debian/files
+/debian/debhelper-build-stamp
+/debian/*.debhelper*
+/debian/*.substvars
+/debian/ungoogled-chromium/
+/debian/ungoogled-chromium-common/
+/debian/ungoogled-chromium-sandbox/
+/debian/ungoogled-chromium-l10n/
+/.pc/domain-substitution.VIRTUAL.patch/
+*.pyc

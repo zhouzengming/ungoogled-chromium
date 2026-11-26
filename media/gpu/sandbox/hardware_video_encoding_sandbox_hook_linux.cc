@@ -57,6 +57,16 @@ bool HardwareVideoEncodingPreSandboxHook(
   // permission to only platforms that need it.
   static const char kDevImageProc0Path[] = "/dev/image-proc0";
   permissions.push_back(BrokerFilePermission::ReadWrite(kDevImageProc0Path));
+  for (size_t i = 0; i < 64; i++) {
+    permissions.push_back(
+        BrokerFilePermission::ReadWrite(base::StringPrintf("/dev/video%zu", i)));
+  }
+  permissions.push_back(BrokerFilePermission::ReadWrite("/dev/dma_heap/system"));
+  permissions.push_back(BrokerFilePermission::ReadWrite("/dev/dma_heap/linux,cma"));
+  permissions.push_back(BrokerFilePermission::ReadOnly(
+      "/usr/lib/aarch64-linux-gnu/dri/qcom_drv_video.so"));
+  permissions.push_back(BrokerFilePermission::ReadOnly(
+      "/usr/lib/aarch64-linux-gnu/dri/msm_drv_video.so"));
 #endif  // BUILDFLAG(USE_V4L2_CODEC)
 
 #if BUILDFLAG(USE_VAAPI)
@@ -92,9 +102,7 @@ bool HardwareVideoEncodingPreSandboxHook(
     const std::string path = base::StringPrintf("/dev/dri/renderD%d", i);
     struct stat st;
     if (stat(path.c_str(), &st) == 0) {
-      permissions.push_back(options.use_amd_specific_policies
-                                ? BrokerFilePermission::ReadWrite(path)
-                                : BrokerFilePermission::ReadOnly(path));
+      permissions.push_back(BrokerFilePermission::ReadWrite(path));
 
 #if BUILDFLAG(USE_VAAPI)
       uint32_t major = (static_cast<uint32_t>(st.st_rdev) >> 8) & 0xff;

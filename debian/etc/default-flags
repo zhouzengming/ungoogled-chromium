@@ -14,3 +14,9 @@ export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --disable-pings"
 
 # Disable the builtin media router (bug #833477)
 export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --media-router=0"
+
+# Qualcomm FV01 (QCS6490 Venus) & FV04 (QCS8550 Iris) GPU/VPU defaults
+export LIBVA_DRIVER_NAME="${LIBVA_DRIVER_NAME:-qcom}"
+export IRIS_VAAPI_DEVICE="${IRIS_VAAPI_DEVICE:-/dev/video-dec0}"
+export IRIS_VAAPI_ENCODER_DEVICE="${IRIS_VAAPI_ENCODER_DEVICE:-/dev/video-enc0}"
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --ozone-platform-hint=auto --ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy"

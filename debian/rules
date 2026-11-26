@@ -98,9 +98,7 @@ defines+=host_cpu=\"x64\" use_vaapi=true
 endif
 ifeq (arm64,$(DEB_HOST_ARCH))
 defines+=host_cpu=\"arm64\" use_v4l2_codec=true use_vaapi=true
-# use_av1_hw_decoder is enabled by default for vaapi, but disabled for
-# v4l2, we can remove it when chromium enables it for v4l2 by default
-defines+=use_av1_hw_decoder=true
+defines+=use_av1_hw_decoder=true enable_hevc_parser_and_hw_decoder=true enable_platform_hevc=true
 endif
 ifeq (armhf,$(DEB_HOST_ARCH))
 defines+=host_cpu=\"arm\" use_v4l2_codec=true use_vaapi=true arm_use_neon=true
@@ -142,7 +140,7 @@ else ifeq ($(component_build),yes)
 # thin lto assumes a single final link, which a component build does not have
 defines+=use_thin_lto=false
 else
-defines+=use_thin_lto=true
+defines+=use_thin_lto=false concurrent_links=2 blink_symbol_level=0 v8_symbol_level=0
 endif
 
 # disabled features
@@ -286,16 +284,12 @@ override_dh_auto_configure: test_armhf_neon
 override_dh_auto_build-arch: out/Release/gn domain-substitution
 	./out/Release/gn gen out/Release --args="$(defines)"
 	# Avoid chromium-shell -> libtest_trace_processor.so dependency
-	sed -i '/^  solibs =/ s! \./libtest_trace_processor\.so!!' out/Release/obj/content/shell/content_shell.ninja
 	test ! -d pre-gen || python3 debian/deb_pre_gen.py -C out/Release add-ninja-hooks
 	# XtraDeb workaround for https://crbug.com/40943790
 	ninja $(CR_VERBOSE) -j$(njobs) -C out/Release ui/webui/resources/cr_components/history_clusters:build_ts
-	$(keepalive) ninja $(CR_VERBOSE) -j$(njobs) -C out/Release chrome chrome_sandbox content_shell chromedriver headless_shell
+	$(keepalive) ninja $(CR_VERBOSE) -j$(njobs) -C out/Release chrome chrome_sandbox chrome_crashpad_handler
 	cp out/Release/chrome out/Release/chromium
-	cp out/Release/content_shell out/Release/chromium-shell
-	cp out/Release/headless_shell out/Release/chromium-headless-shell
 	cp out/Release/chrome_sandbox out/Release/chrome-sandbox
-	cp out/Release/chromedriver out/Release/ungoogled-chromedriver
 	cp out/Release/locales/en-US.pak out/Release/resources
 	chmod 4755 out/Release/chrome-sandbox # suid sandbox
 	sed -e s/@@PACKAGE/chromium/g -e s/@@MENUNAME/chromium/g \
@@ -469,4 +463,4 @@ defines+=chrome_pgo_phase=0 \
 
 domain-substitution:
 	test -d .pc/domain-substitution.VIRTUAL.patch \
-	|| debian/ungoogled-domain-substitution.sh
+	|| (mkdir -p .pc && debian/ungoogled-domain-substitution.sh)

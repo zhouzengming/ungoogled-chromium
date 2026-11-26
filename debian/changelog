@@ -1,3 +1,11 @@
+ungoogled-chromium (156.0.8078.108-1.1+fv01fv04) resolute; urgency=medium
+
+  * Enable Qualcomm Venus (FV01 QCS6490) V4L2 stateful H.264/HEVC/VP9 decode
+    and Qualcomm Iris (FV04 QCS8550) VA-API + V4L2 H.264/HEVC/VP9/AV1 decode
+    with automatic runtime board VPU detection and GPU sandbox allowlisting.
+
+ -- DevKit Builder <builder@localhost>  Thu, 26 Nov 2026 00:45:00 +0800
+
 ungoogled-chromium (156.0.8078.108-1.1xtradeb1.2604.1) resolute; urgency=high
 
   * Apply ungoogled-chromium modifications.

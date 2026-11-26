@@ -919,10 +919,15 @@ void V4L2Device::EnumerateDevicesForType(Type type) {
   // all platforms are updated to use numbered devices.
   candidate_paths.push_back(device_pattern);
 #else
-  // On mainline Linux we need to check a much larger number of devices, mainly
-  // because the device pattern is shared with ISP devices.
+  // On mainline Linux check /dev/video-dec0 or /dev/video-enc0 symlink first,
+  // then scan /dev/video0..255 (shared with Qualcomm CamSS ISP nodes).
   constexpr int kMaxDevices = 256;
-  candidate_paths.reserve(kMaxDevices);
+  candidate_paths.reserve(kMaxDevices + 1);
+  if (type == Type::kDecoder) {
+    candidate_paths.push_back("/dev/video-dec0");
+  } else if (type == Type::kEncoder) {
+    candidate_paths.push_back("/dev/video-enc0");
+  }
 #endif
   for (int i = 0; i < kMaxDevices; ++i) {
     candidate_paths.push_back(

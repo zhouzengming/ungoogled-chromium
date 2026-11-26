@@ -144,50 +144,6 @@ Description: web browser - language packs
  hi, hr, hu, id, it, ja, kn, ko, lt, lv, ml, mr, nb, nl, pl, pt-BR, pt-PT,
  ro, ru, sk, sl, sr, sv, sw, ta, te, th, tr, uk, vi, zh-CN, zh-TW
 
-Package: ungoogled-chromium-shell
-Architecture: i386 amd64 arm64 armhf ppc64el
-Depends:
- ${misc:Depends},
- ${shlibs:Depends},
- ungoogled-chromium-common (= ${binary:Version}),
-Breaks:
- ungoogled-chromium (<< ${binary:Version}),
-Replaces:
- ungoogled-chromium (<< ${binary:Version}),
-Description: web browser - minimal shell
- Web browser that aims to build a safer, faster, and more stable internet
- browsing experience.
- .
- This package provides a minimal version of the chromium user interface
- (the content shell).
-
-Package: ungoogled-chromium-headless-shell
-Architecture: i386 amd64 arm64 armhf ppc64el
-Depends:
- ${misc:Depends},
- ${shlibs:Depends},
- ungoogled-chromium-common (= ${binary:Version}),
-Description: web browser - old headless shell
- Web browser that aims to build a safer, faster, and more stable internet
- browsing experience.
- .
- This package provides a headless (no GUI) version of the chromium browser,
- which can be useful for doing things like generating PDFs. It is
- equivalent to the 'chromium --headless=old' option that was removed.
-
-Package: ungoogled-chromium-driver
-Architecture: i386 amd64 arm64 armhf ppc64el
-Depends:
- ${misc:Depends},
- ${shlibs:Depends},
- ungoogled-chromium (= ${binary:Version}),
-Description: web browser - WebDriver support
- Web browser that aims to build a safer, faster, and more stable internet
- browsing experience.
- .
- This package provides a bridge between the browser component and the selenium
- automatic webdriver.
-
 Package: ungoogled-chromium-common
 Architecture: i386 amd64 arm64 armhf ppc64el
 Depends:
