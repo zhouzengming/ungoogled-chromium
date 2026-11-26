@@ -1,0 +1,88 @@
+// Copyright 2026 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+import * as SDK from '../../../core/sdk/sdk.js';
+import type * as LHModel from '../../lighthouse/lighthouse.js';
+import {
+  type AiWidget,
+  type ContextDetail,
+  ConversationContext,
+} from '../agents/AiAgent.js';
+import {LighthouseFormatter} from '../data_formatters/LighthouseFormatter.js';
+
+export class AccessibilityContext extends ConversationContext<LHModel.ReporterTypes.ReportJSON> {
+  override readonly jslogContext = 'ai-context-accessibility' as const;
+  readonly #lh: LHModel.ReporterTypes.ReportJSON;
+  #cachedPayload: string|null = null;
+
+  constructor(report: LHModel.ReporterTypes.ReportJSON) {
+    super();
+    this.#lh = report;
+  }
+
+  #url(): string {
+    return this.#lh.finalUrl ?? this.#lh.finalDisplayedUrl;
+  }
+
+  /**
+   * Returns the security origin of the audited page from the Lighthouse report.
+   *
+   * Derives the origin from the report URL (`finalUrl` or `finalDisplayedUrl`).
+   * If the report does not contain a valid URL, returns a unique opaque origin.
+   *
+   * @returns The security origin of the audited page.
+   */
+  override getOrigin(): SDK.SecurityOrigin.SecurityOrigin {
+    return SDK.SecurityOrigin.SecurityOrigin.create(this.#url());
+  }
+
+  override getItem(): LHModel.ReporterTypes.ReportJSON {
+    return this.#lh;
+  }
+
+  override getTitle(): string {
+    return `Lighthouse report: ${this.#url()}`;
+  }
+
+  #getInitialPayload(): string {
+    if (this.#cachedPayload !== null) {
+      return this.#cachedPayload;
+    }
+    const formatter = new LighthouseFormatter();
+    const summary = formatter.summary(this.#lh);
+    const audits = formatter.audits(this.#lh, 'accessibility');
+    const allFailed = Object.values(this.#lh.categories).every(category => category.score === null);
+    if (allFailed) {
+      this.#cachedPayload =
+          '**CRITICAL**: The Lighthouse report failed to record or all category scores are error/unavailable (n/a). This indicates a failed run or missing data.';
+    } else {
+      this.#cachedPayload = `# Lighthouse Report:\n${summary}\n${audits}`;
+    }
+    return this.#cachedPayload;
+  }
+
+  override async getPromptDetails(): Promise<string|null> {
+    return this.#getInitialPayload();
+  }
+
+  override async getUserFacingDetails(): Promise<[ContextDetail, ...ContextDetail[]]|null> {
+    return [
+      {
+        title: 'Lighthouse report',
+        text: this.#getInitialPayload(),
+      },
+    ];
+  }
+
+  override async getWidgets(): Promise<AiWidget[]> {
+    return [
+      {
+        name: 'LIGHTHOUSE_REPORT',
+        data: {
+          report: this.#lh,
+        },
+      },
+    ];
+  }
+}
